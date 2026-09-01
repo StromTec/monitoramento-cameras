@@ -13,6 +13,7 @@ import {
   Pencil,
   FolderOpen,
   Users,
+  History,
 } from 'lucide-react'
 import {
   PieChart,
@@ -292,9 +293,22 @@ export default function DashboardPage() {
               Arquivos
             </button>
 
+            {/* HISTÓRICO */}
+            <button
+              onClick={() =>
+                router.push(
+                  '/historico'
+                )
+              }
+              className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
+            >
+              <History size={16} />
+
+              Histórico
+            </button>
+
             {/* USUÁRIOS - SOMENTE ADMINISTRADOR */}
-            {perfil ===
-              'administrador' && (
+            {perfil === 'administrador' && (
               <button
                 onClick={() =>
                   router.push(
@@ -559,7 +573,7 @@ export default function DashboardPage() {
 
               </div>
 
-              {/* HISTÓRICO */}
+              {/* HISTÓRICO GRÁFICO */}
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 xl:col-span-2">
 
                 <div className="mb-6">
@@ -574,8 +588,7 @@ export default function DashboardPage() {
 
                 </div>
 
-                {dadosHistorico.length ===
-                0 ? (
+                {dadosHistorico.length === 0 ? (
 
                   <div className="flex h-[360px] items-center justify-center text-slate-500">
                     Nenhum histórico disponível.
