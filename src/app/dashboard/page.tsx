@@ -12,6 +12,7 @@ import {
   LogOut,
   Pencil,
   FolderOpen,
+  Users,
 } from 'lucide-react'
 import {
   PieChart,
@@ -104,7 +105,8 @@ export default function DashboardPage() {
     setCarregando(false)
   }
 
-  const ultimoRegistro = registros[registros.length - 1]
+  const ultimoRegistro =
+    registros[registros.length - 1]
 
   const instaladas =
     ultimoRegistro?.cameras_instaladas ?? 0
@@ -129,7 +131,10 @@ export default function DashboardPage() {
 
   const percentualMeta =
     instaladas > 0
-      ? Math.min((instaladas / meta) * 100, 100)
+      ? Math.min(
+          (instaladas / meta) * 100,
+          100
+        )
       : 0
 
   const faltam = Math.max(
@@ -151,8 +156,8 @@ export default function DashboardPage() {
     [online, offline]
   )
 
-  const dadosHistorico = registros.map(
-    (item) => ({
+  const dadosHistorico =
+    registros.map((item) => ({
       data: new Date(
         `${item.data}T00:00:00`
       ).toLocaleDateString('pt-BR', {
@@ -168,40 +173,49 @@ export default function DashboardPage() {
 
       offline:
         item.cameras_offline,
-    })
-  )
+    }))
 
   async function sair() {
     await supabase.auth.signOut()
     router.push('/login')
   }
 
-  function formatarNumero(valor: number) {
+  function formatarNumero(
+    valor: number
+  ) {
     return new Intl.NumberFormat(
       'pt-BR'
     ).format(valor)
   }
 
-  function formatarData(data?: string) {
+  function formatarData(
+    data?: string
+  ) {
     if (!data) {
       return 'Nenhuma atualização'
     }
 
-    return new Date(data).toLocaleString(
-      'pt-BR'
-    )
+    return new Date(
+      data
+    ).toLocaleString('pt-BR')
   }
 
   function nomePerfil() {
-    if (perfil === 'administrador') {
+    if (
+      perfil === 'administrador'
+    ) {
       return 'Administrador'
     }
 
-    if (perfil === 'operador') {
+    if (
+      perfil === 'operador'
+    ) {
       return 'Operador'
     }
 
-    if (perfil === 'visualizador') {
+    if (
+      perfil === 'visualizador'
+    ) {
       return 'Visualizador'
     }
 
@@ -248,7 +262,7 @@ export default function DashboardPage() {
 
           <div className="flex flex-wrap items-center gap-3">
 
-            {/* ATUALIZAR DADOS - SOMENTE ADMIN/OPERADOR */}
+            {/* ATUALIZAR DADOS - ADMIN / OPERADOR */}
             {podeEditar && (
               <button
                 onClick={() =>
@@ -267,7 +281,9 @@ export default function DashboardPage() {
             {/* ARQUIVOS */}
             <button
               onClick={() =>
-                router.push('/arquivos')
+                router.push(
+                  '/arquivos'
+                )
               }
               className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
             >
@@ -276,9 +292,28 @@ export default function DashboardPage() {
               Arquivos
             </button>
 
+            {/* USUÁRIOS - SOMENTE ADMINISTRADOR */}
+            {perfil ===
+              'administrador' && (
+              <button
+                onClick={() =>
+                  router.push(
+                    '/admin/usuarios'
+                  )
+                }
+                className="flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-sm font-semibold text-sky-300 transition hover:bg-sky-500/20"
+              >
+                <Users size={16} />
+
+                Usuários
+              </button>
+            )}
+
             {/* RECARREGAR */}
             <button
-              onClick={carregarDados}
+              onClick={
+                carregarDados
+              }
               className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800"
             >
               <RefreshCcw size={16} />
