@@ -1,15 +1,18 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   History,
   RefreshCcw,
   Search,
   UserRound,
+  X,
 } from 'lucide-react'
 
 type Historico = {
@@ -34,18 +37,39 @@ type Historico = {
   criado_em: string
 }
 
+const ITENS_POR_PAGINA = 10
+
 export default function HistoricoPage() {
   const router = useRouter()
 
   const [historico, setHistorico] = useState<Historico[]>([])
+
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
+
   const [busca, setBusca] = useState('')
   const [filtroAcao, setFiltroAcao] = useState('todos')
+
+  const [dataInicial, setDataInicial] = useState('')
+  const [dataFinal, setDataFinal] = useState('')
+
+  const [paginaAtual, setPaginaAtual] = useState(1)
+  const [totalRegistros, setTotalRegistros] = useState(0)
 
   useEffect(() => {
     verificarUsuario()
   }, [])
+
+  useEffect(() => {
+    if (paginaAtual > 0) {
+      carregarHistorico()
+    }
+  }, [
+    paginaAtual,
+    filtroAcao,
+    dataInicial,
+    dataFinal,
+  ])
 
   async function verificarUsuario() {
     const {
@@ -65,61 +89,110 @@ export default function HistoricoPage() {
     setCarregando(true)
     setErro('')
 
-    const { data, error } = await supabase
+    const inicio =
+      (paginaAtual - 1) *
+      ITENS_POR_PAGINA
+
+    const fim =
+      inicio +
+      ITENS_POR_PAGINA -
+      1
+
+    let query = supabase
       .from('historico_monitoramento')
-      .select('*')
+      .select('*', {
+        count: 'exact',
+      })
+
+    if (
+      filtroAcao !== 'todos'
+    ) {
+      query = query.eq(
+        'acao',
+        filtroAcao
+      )
+    }
+
+    if (dataInicial) {
+      query = query.gte(
+        'data_referencia',
+        dataInicial
+      )
+    }
+
+    if (dataFinal) {
+      query = query.lte(
+        'data_referencia',
+        dataFinal
+      )
+    }
+
+    const textoBusca =
+      busca.trim()
+
+    if (textoBusca) {
+      query = query.or(
+        [
+          `usuario_nome.ilike.%${textoBusca}%`,
+          `usuario_perfil.ilike.%${textoBusca}%`,
+          `observacao_novo.ilike.%${textoBusca}%`,
+          `observacao_anterior.ilike.%${textoBusca}%`,
+        ].join(',')
+      )
+    }
+
+    const {
+      data,
+      error,
+      count,
+    } = await query
       .order('criado_em', {
         ascending: false,
       })
+      .range(inicio, fim)
 
     if (error) {
       console.error(error)
+
       setErro(
         `Erro ao carregar histórico: ${error.message}`
       )
+
       setCarregando(false)
+
       return
     }
 
-    setHistorico(data || [])
+    setHistorico(
+      data || []
+    )
+
+    setTotalRegistros(
+      count || 0
+    )
+
     setCarregando(false)
   }
 
-  const historicoFiltrado = useMemo(() => {
-    const textoBusca = busca
-      .trim()
-      .toLowerCase()
+  function pesquisar() {
+    setPaginaAtual(1)
 
-    return historico.filter((item) => {
-      const correspondeAcao =
-        filtroAcao === 'todos' ||
-        item.acao === filtroAcao
+    if (paginaAtual === 1) {
+      carregarHistorico()
+    }
+  }
 
-      const correspondeBusca =
-        !textoBusca ||
-        item.usuario_nome
-          ?.toLowerCase()
-          .includes(textoBusca) ||
-        item.usuario_perfil
-          ?.toLowerCase()
-          .includes(textoBusca) ||
-        item.data_referencia
-          ?.toLowerCase()
-          .includes(textoBusca) ||
-        item.observacao_novo
-          ?.toLowerCase()
-          .includes(textoBusca)
+  function limparFiltros() {
+    setBusca('')
+    setFiltroAcao('todos')
+    setDataInicial('')
+    setDataFinal('')
+    setPaginaAtual(1)
 
-      return (
-        correspondeAcao &&
-        correspondeBusca
-      )
-    })
-  }, [
-    historico,
-    busca,
-    filtroAcao,
-  ])
+    setTimeout(() => {
+      carregarHistorico()
+    }, 0)
+  }
 
   function formatarNumero(
     valor: number | null
@@ -152,24 +225,58 @@ export default function HistoricoPage() {
   function nomePerfil(
     perfil: string | null
   ) {
-    if (perfil === 'administrador') {
+    if (
+      perfil === 'administrador'
+    ) {
       return 'Administrador'
     }
 
-    if (perfil === 'operador') {
+    if (
+      perfil === 'operador'
+    ) {
       return 'Operador'
     }
 
-    if (perfil === 'visualizador') {
+    if (
+      perfil === 'visualizador'
+    ) {
       return 'Visualizador'
     }
 
-    if (perfil === 'sistema') {
+    if (
+      perfil === 'sistema'
+    ) {
       return 'Sistema'
     }
 
-    return perfil || 'Não identificado'
+    return (
+      perfil ||
+      'Não identificado'
+    )
   }
+
+  const totalPaginas =
+    Math.max(
+      Math.ceil(
+        totalRegistros /
+          ITENS_POR_PAGINA
+      ),
+      1
+    )
+
+  const primeiroRegistro =
+    totalRegistros === 0
+      ? 0
+      : (paginaAtual - 1) *
+          ITENS_POR_PAGINA +
+        1
+
+  const ultimoRegistro =
+    Math.min(
+      paginaAtual *
+        ITENS_POR_PAGINA,
+      totalRegistros
+    )
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
@@ -183,12 +290,16 @@ export default function HistoricoPage() {
 
             <button
               onClick={() =>
-                router.push('/dashboard')
+                router.push(
+                  '/dashboard'
+                )
               }
               className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-700 text-slate-300 transition hover:bg-slate-800"
               title="Voltar ao Dashboard"
             >
-              <ArrowLeft size={18} />
+              <ArrowLeft
+                size={18}
+              />
             </button>
 
             <div>
@@ -215,7 +326,9 @@ export default function HistoricoPage() {
             }
             className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
           >
-            <RefreshCcw size={16} />
+            <RefreshCcw
+              size={16}
+            />
 
             Atualizar
           </button>
@@ -236,17 +349,21 @@ export default function HistoricoPage() {
               <div>
 
                 <p className="text-sm text-slate-400">
-                  Total de registros
+                  Total encontrado
                 </p>
 
                 <p className="mt-2 text-3xl font-bold">
-                  {historico.length}
+                  {
+                    totalRegistros
+                  }
                 </p>
 
               </div>
 
               <div className="rounded-xl bg-sky-500/10 p-3 text-sky-400">
-                <History size={22} />
+                <History
+                  size={22}
+                />
               </div>
 
             </div>
@@ -260,23 +377,21 @@ export default function HistoricoPage() {
               <div>
 
                 <p className="text-sm text-slate-400">
-                  Registros criados
+                  Página atual
                 </p>
 
                 <p className="mt-2 text-3xl font-bold">
                   {
-                    historico.filter(
-                      (item) =>
-                        item.acao ===
-                        'criado'
-                    ).length
+                    paginaAtual
                   }
                 </p>
 
               </div>
 
               <div className="rounded-xl bg-emerald-500/10 p-3 text-emerald-400">
-                <Clock3 size={22} />
+                <Clock3
+                  size={22}
+                />
               </div>
 
             </div>
@@ -290,23 +405,21 @@ export default function HistoricoPage() {
               <div>
 
                 <p className="text-sm text-slate-400">
-                  Atualizações
+                  Total de páginas
                 </p>
 
                 <p className="mt-2 text-3xl font-bold">
                   {
-                    historico.filter(
-                      (item) =>
-                        item.acao ===
-                        'atualizado'
-                    ).length
+                    totalPaginas
                   }
                 </p>
 
               </div>
 
               <div className="rounded-xl bg-amber-500/10 p-3 text-amber-400">
-                <RefreshCcw size={22} />
+                <RefreshCcw
+                  size={22}
+                />
               </div>
 
             </div>
@@ -318,9 +431,10 @@ export default function HistoricoPage() {
         {/* FILTROS */}
         <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
 
-          <div className="flex flex-col gap-4 md:flex-row">
+          <div className="grid gap-4 lg:grid-cols-4">
 
-            <div className="relative flex-1">
+            {/* BUSCA */}
+            <div className="relative lg:col-span-2">
 
               <Search
                 size={17}
@@ -329,24 +443,47 @@ export default function HistoricoPage() {
 
               <input
                 value={busca}
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   setBusca(
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
+                onKeyDown={(
+                  event
+                ) => {
+                  if (
+                    event.key ===
+                    'Enter'
+                  ) {
+                    pesquisar()
+                  }
+                }}
                 placeholder="Buscar usuário, perfil ou observação..."
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-sky-500"
               />
 
             </div>
 
+            {/* AÇÃO */}
             <select
-              value={filtroAcao}
-              onChange={(event) =>
-                setFiltroAcao(
-                  event.target.value
-                )
+              value={
+                filtroAcao
               }
+              onChange={(
+                event
+              ) => {
+                setFiltroAcao(
+                  event.target
+                    .value
+                )
+
+                setPaginaAtual(
+                  1
+                )
+              }}
               className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-300 outline-none focus:border-sky-500"
             >
               <option value="todos">
@@ -362,6 +499,96 @@ export default function HistoricoPage() {
               </option>
             </select>
 
+            {/* PESQUISAR */}
+            <button
+              onClick={
+                pesquisar
+              }
+              className="flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
+            >
+              <Search
+                size={16}
+              />
+
+              Pesquisar
+            </button>
+
+          </div>
+
+          {/* PERÍODO */}
+          <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+
+            <div>
+
+              <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-500">
+                Data inicial
+              </label>
+
+              <input
+                type="date"
+                value={
+                  dataInicial
+                }
+                onChange={(
+                  event
+                ) => {
+                  setDataInicial(
+                    event.target
+                      .value
+                  )
+
+                  setPaginaAtual(
+                    1
+                  )
+                }}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-300 outline-none focus:border-sky-500"
+              />
+
+            </div>
+
+            <div>
+
+              <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-500">
+                Data final
+              </label>
+
+              <input
+                type="date"
+                value={
+                  dataFinal
+                }
+                onChange={(
+                  event
+                ) => {
+                  setDataFinal(
+                    event.target
+                      .value
+                  )
+
+                  setPaginaAtual(
+                    1
+                  )
+                }}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-300 outline-none focus:border-sky-500"
+              />
+
+            </div>
+
+            <div className="flex items-end lg:col-span-2">
+
+              <button
+                onClick={
+                  limparFiltros
+                }
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 px-4 py-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+              >
+                <X size={16} />
+
+                Limpar filtros
+              </button>
+
+            </div>
+
           </div>
 
         </div>
@@ -372,8 +599,45 @@ export default function HistoricoPage() {
           </div>
         )}
 
+        {/* INFORMAÇÃO DE PAGINAÇÃO */}
+        {!carregando &&
+          totalRegistros > 0 && (
+            <div className="mt-6 flex flex-col gap-2 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
+
+              <p>
+                Mostrando{' '}
+                <span className="font-medium text-slate-300">
+                  {
+                    primeiroRegistro
+                  }
+                </span>
+                {' '}a{' '}
+                <span className="font-medium text-slate-300">
+                  {
+                    ultimoRegistro
+                  }
+                </span>
+                {' '}de{' '}
+                <span className="font-medium text-slate-300">
+                  {
+                    totalRegistros
+                  }
+                </span>
+                {' '}registros.
+              </p>
+
+              <p>
+                {
+                  ITENS_POR_PAGINA
+                }{' '}
+                registros por página
+              </p>
+
+            </div>
+          )}
+
         {/* LISTAGEM */}
-        <div className="mt-6">
+        <div className="mt-4">
 
           {carregando ? (
 
@@ -381,7 +645,7 @@ export default function HistoricoPage() {
               Carregando histórico...
             </div>
 
-          ) : historicoFiltrado.length ===
+          ) : historico.length ===
             0 ? (
 
             <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-slate-500">
@@ -392,7 +656,7 @@ export default function HistoricoPage() {
 
             <div className="space-y-4">
 
-              {historicoFiltrado.map(
+              {historico.map(
                 (item) => (
                   <div
                     key={item.id}
@@ -579,6 +843,85 @@ export default function HistoricoPage() {
           )}
 
         </div>
+
+        {/* PAGINAÇÃO */}
+        {!carregando &&
+          totalRegistros > 0 && (
+            <div className="mt-8 flex flex-col items-center justify-between gap-4 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:flex-row">
+
+              <p className="text-sm text-slate-500">
+                Página{' '}
+                <span className="font-semibold text-slate-300">
+                  {
+                    paginaAtual
+                  }
+                </span>
+                {' '}de{' '}
+                <span className="font-semibold text-slate-300">
+                  {
+                    totalPaginas
+                  }
+                </span>
+              </p>
+
+              <div className="flex items-center gap-3">
+
+                <button
+                  disabled={
+                    paginaAtual <=
+                    1
+                  }
+                  onClick={() =>
+                    setPaginaAtual(
+                      (
+                        pagina
+                      ) =>
+                        Math.max(
+                          pagina -
+                            1,
+                          1
+                        )
+                    )
+                  }
+                  className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronLeft
+                    size={16}
+                  />
+
+                  Anterior
+                </button>
+
+                <button
+                  disabled={
+                    paginaAtual >=
+                    totalPaginas
+                  }
+                  onClick={() =>
+                    setPaginaAtual(
+                      (
+                        pagina
+                      ) =>
+                        Math.min(
+                          pagina +
+                            1,
+                          totalPaginas
+                        )
+                    )
+                  }
+                  className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Próxima
+
+                  <ChevronRight
+                    size={16}
+                  />
+                </button>
+
+              </div>
+
+            </div>
+          )}
 
       </section>
 
