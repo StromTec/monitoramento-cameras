@@ -11,6 +11,7 @@ import {
   RefreshCcw,
   FolderOpen,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react'
 
 type Arquivo = {
@@ -52,7 +53,7 @@ export default function ArquivosPage() {
     } = await supabase.auth.getUser()
 
     if (userError || !user) {
-      router.push('/login')
+      router.replace('/login')
       return
     }
 
@@ -63,23 +64,23 @@ export default function ArquivosPage() {
         .eq('id', user.id)
         .single()
 
-    if (perfilError) {
-      console.error(perfilError)
+    if (perfilError || !perfilUsuario) {
       setErro(
         'Não foi possível identificar o perfil deste usuário.'
       )
+      setCarregando(false)
+      return
     }
 
-    if (perfilUsuario) {
-      setPerfil(perfilUsuario.perfil)
-      setNomeUsuario(perfilUsuario.nome)
-    }
+    setPerfil(perfilUsuario.perfil)
+    setNomeUsuario(perfilUsuario.nome)
 
     await carregarArquivos()
   }
 
   async function carregarArquivos() {
     setCarregando(true)
+    setErro('')
 
     const { data, error } = await supabase
       .from('arquivos')
@@ -104,9 +105,7 @@ export default function ArquivosPage() {
   ) {
     const arquivo = event.target.files?.[0]
 
-    if (!arquivo) {
-      return
-    }
+    if (!arquivo) return
 
     setArquivoSelecionado(arquivo)
     setMensagem('')
@@ -177,21 +176,12 @@ export default function ArquivosPage() {
       await supabase
         .from('arquivos')
         .insert({
-          nome_arquivo:
-            arquivoSelecionado.name,
-
-          caminho_arquivo:
-            caminhoArquivo,
-
+          nome_arquivo: arquivoSelecionado.name,
+          caminho_arquivo: caminhoArquivo,
           tipo_arquivo:
-            arquivoSelecionado.type ||
-            extensao,
-
-          tamanho:
-            arquivoSelecionado.size,
-
-          enviado_por:
-            user.id,
+            arquivoSelecionado.type || extensao,
+          tamanho: arquivoSelecionado.size,
+          enviado_por: user.id,
         })
 
     if (bancoError) {
@@ -203,11 +193,7 @@ export default function ArquivosPage() {
     }
 
     setArquivoSelecionado(null)
-
-    setMensagem(
-      'Arquivo enviado com sucesso!'
-    )
-
+    setMensagem('Arquivo enviado com sucesso!')
     setEnviando(false)
 
     await carregarArquivos()
@@ -243,6 +229,59 @@ export default function ArquivosPage() {
     )
   }
 
+  async function excluirArquivo(
+    arquivo: Arquivo
+  ) {
+    if (perfil !== 'administrador') {
+      setErro(
+        'Somente administradores podem excluir arquivos.'
+      )
+      return
+    }
+
+    const confirmar = window.confirm(
+      `Deseja realmente excluir "${arquivo.nome_arquivo}"?`
+    )
+
+    if (!confirmar) return
+
+    setErro('')
+    setMensagem('')
+
+    const { error: storageError } =
+      await supabase.storage
+        .from('arquivos')
+        .remove([
+          arquivo.caminho_arquivo,
+        ])
+
+    if (storageError) {
+      setErro(
+        `Erro ao excluir arquivo do Storage: ${storageError.message}`
+      )
+      return
+    }
+
+    const { error: bancoError } =
+      await supabase
+        .from('arquivos')
+        .delete()
+        .eq('id', arquivo.id)
+
+    if (bancoError) {
+      setErro(
+        `O arquivo foi removido do Storage, mas ocorreu erro ao remover o registro do banco: ${bancoError.message}`
+      )
+      return
+    }
+
+    setMensagem(
+      'Arquivo excluído com sucesso.'
+    )
+
+    await carregarArquivos()
+  }
+
   function formatarData(data: string) {
     return new Date(
       data
@@ -252,9 +291,7 @@ export default function ArquivosPage() {
   function formatarTamanho(
     bytes: number | null
   ) {
-    if (!bytes) {
-      return '-'
-    }
+    if (!bytes) return '-'
 
     if (bytes < 1024) {
       return `${bytes} B`
@@ -297,7 +334,6 @@ export default function ArquivosPage() {
 
       <div className="mx-auto max-w-6xl">
 
-        {/* VOLTAR */}
         <button
           onClick={() =>
             router.push('/dashboard')
@@ -305,11 +341,9 @@ export default function ArquivosPage() {
           className="mb-6 flex items-center gap-2 text-sm text-slate-400 transition hover:text-white"
         >
           <ArrowLeft size={18} />
-
           Voltar ao Dashboard
         </button>
 
-        {/* CABEÇALHO */}
         <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-7">
 
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
@@ -325,7 +359,7 @@ export default function ArquivosPage() {
               </h1>
 
               <p className="mt-2 text-sm text-slate-400">
-                Consulte os documentos utilizados no acompanhamento da produção.
+                Consulte e gerencie os documentos da operação.
               </p>
 
               {nomeUsuario && (
@@ -353,7 +387,6 @@ export default function ArquivosPage() {
 
         </div>
 
-        {/* ÁREA DE UPLOAD - SOMENTE ADMIN / OPERADOR */}
         {podeEditar && (
           <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-7">
 
@@ -378,10 +411,6 @@ export default function ArquivosPage() {
 
             </div>
 
-            <p className="mt-4 text-xs text-slate-500">
-              XML, PDF, XLSX, XLS, CSV, TXT e outros documentos.
-            </p>
-
             <div className="mt-6 rounded-xl border-2 border-dashed border-slate-700 bg-slate-950 p-8 text-center">
 
               <Upload
@@ -400,7 +429,7 @@ export default function ArquivosPage() {
               {arquivoSelecionado && (
                 <div className="mt-5 rounded-lg bg-slate-900 p-4">
 
-                  <p className="font-medium text-white">
+                  <p className="font-medium">
                     {
                       arquivoSelecionado.name
                     }
@@ -425,17 +454,18 @@ export default function ArquivosPage() {
               }
               className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-5 py-4 font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
+
               <Upload size={19} />
 
               {enviando
                 ? 'Enviando arquivo...'
                 : 'Enviar arquivo'}
+
             </button>
 
           </div>
         )}
 
-        {/* AVISO PARA VISUALIZADOR */}
         {perfil === 'visualizador' && (
           <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
 
@@ -448,12 +478,12 @@ export default function ArquivosPage() {
 
               <div>
 
-                <p className="font-medium text-slate-200">
-                  Acesso de visualização
+                <p className="font-medium">
+                  Acesso somente para visualização
                 </p>
 
                 <p className="mt-1 text-sm text-slate-400">
-                  Seu usuário pode consultar os documentos, mas não possui permissão para enviar novos arquivos.
+                  Você pode consultar os documentos, mas não pode enviar ou excluir arquivos.
                 </p>
 
               </div>
@@ -463,21 +493,18 @@ export default function ArquivosPage() {
           </div>
         )}
 
-        {/* ERRO */}
         {erro && (
           <div className="mb-6 rounded-xl border border-red-900 bg-red-950/40 p-4 text-sm text-red-300">
             {erro}
           </div>
         )}
 
-        {/* SUCESSO */}
         {mensagem && (
           <div className="mb-6 rounded-xl border border-emerald-900 bg-emerald-950/40 p-4 text-sm text-emerald-300">
             {mensagem}
           </div>
         )}
 
-        {/* LISTA DE ARQUIVOS */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900">
 
           <div className="flex items-center justify-between border-b border-slate-800 p-6">
@@ -489,8 +516,7 @@ export default function ArquivosPage() {
               </h2>
 
               <p className="mt-1 text-sm text-slate-400">
-                {arquivos.length}{' '}
-                arquivo(s)
+                {arquivos.length} arquivo(s)
               </p>
 
             </div>
@@ -502,9 +528,7 @@ export default function ArquivosPage() {
               className="rounded-xl border border-slate-700 p-3 text-slate-300 transition hover:bg-slate-800"
               title="Atualizar lista"
             >
-              <RefreshCcw
-                size={18}
-              />
+              <RefreshCcw size={18} />
             </button>
 
           </div>
@@ -553,7 +577,7 @@ export default function ArquivosPage() {
                     </th>
 
                     <th className="px-6 py-4 text-right">
-                      Ação
+                      Ações
                     </th>
 
                   </tr>
@@ -575,26 +599,17 @@ export default function ArquivosPage() {
                           <div className="flex items-center gap-3">
 
                             <div className="rounded-lg bg-sky-500/10 p-2 text-sky-400">
-
-                              <FileText
-                                size={19}
-                              />
-
+                              <FileText size={19} />
                             </div>
 
                             <div>
 
                               <p className="font-medium">
-                                {
-                                  arquivo.nome_arquivo
-                                }
+                                {arquivo.nome_arquivo}
                               </p>
 
                               <p className="mt-1 text-xs text-slate-500">
-                                {
-                                  arquivo.tipo_arquivo ||
-                                  'Arquivo'
-                                }
+                                {arquivo.tipo_arquivo || 'Arquivo'}
                               </p>
 
                             </div>
@@ -604,35 +619,48 @@ export default function ArquivosPage() {
                         </td>
 
                         <td className="px-6 py-5 text-sm text-slate-400">
-
                           {formatarData(
                             arquivo.criado_em
                           )}
-
                         </td>
 
                         <td className="px-6 py-5 text-sm text-slate-400">
-
                           {formatarTamanho(
                             arquivo.tamanho
                           )}
-
                         </td>
 
-                        <td className="px-6 py-5 text-right">
+                        <td className="px-6 py-5">
 
-                          <button
-                            onClick={() =>
-                              visualizarArquivo(
-                                arquivo.caminho_arquivo
-                              )
-                            }
-                            className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700"
-                          >
-                            <Eye size={16} />
+                          <div className="flex justify-end gap-2">
 
-                            Visualizar
-                          </button>
+                            <button
+                              onClick={() =>
+                                visualizarArquivo(
+                                  arquivo.caminho_arquivo
+                                )
+                              }
+                              className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700"
+                            >
+                              <Eye size={16} />
+                              Visualizar
+                            </button>
+
+                            {perfil === 'administrador' && (
+                              <button
+                                onClick={() =>
+                                  excluirArquivo(
+                                    arquivo
+                                  )
+                                }
+                                className="inline-flex items-center gap-2 rounded-lg bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300 transition hover:bg-red-500/20"
+                              >
+                                <Trash2 size={16} />
+                                Excluir
+                              </button>
+                            )}
+
+                          </div>
 
                         </td>
 

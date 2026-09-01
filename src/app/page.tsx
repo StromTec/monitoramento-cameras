@@ -1,38 +1,33 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
-export default function Home() {
-  const [status, setStatus] = useState('Testando conexão...')
+export default function HomePage() {
+  const router = useRouter()
 
   useEffect(() => {
-    async function testarSupabase() {
-      const { error } = await supabase
-        .from('monitoramento_diario')
-        .select('*')
-        .limit(1)
-
-      if (error) {
-        setStatus(`Erro: ${error.message}`)
-        return
-      }
-
-      setStatus('Supabase conectado com sucesso!')
-    }
-
-    testarSupabase()
+    verificarSessao()
   }, [])
 
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950">
-      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 shadow-xl">
-        <h1 className="mb-4 text-3xl font-bold text-white">
-          Monitoramento de Câmeras
-        </h1>
+  async function verificarSessao() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-        <p className="text-lg text-slate-300">
-          {status}
+    if (user) {
+      router.replace('/dashboard')
+    } else {
+      router.replace('/login')
+    }
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
+      <div className="text-center">
+        <p className="text-sm text-slate-400">
+          Carregando sistema...
         </p>
       </div>
     </main>
