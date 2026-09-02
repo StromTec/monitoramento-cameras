@@ -1,21 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL!
 
-function criarAdminClient() {
-  return createClient(
-    supabaseUrl,
-    serviceRoleKey,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
-}
+const serviceRoleKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+
+const supabaseAdmin = createClient(
+  supabaseUrl,
+  serviceRoleKey,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  }
+)
+
+type PerfilUsuario =
+  | 'administrador'
+  | 'operador'
+  | 'visualizador'
+
+const perfisPermitidos: PerfilUsuario[] = [
+  'administrador',
+  'operador',
+  'visualizador',
+]
 
 async function verificarAdministrador(
   request: NextRequest
@@ -28,98 +40,132 @@ async function verificarAdministrador(
     !authorization.startsWith('Bearer ')
   ) {
     return {
-      autorizado: false,
-      usuario: null,
-      erro: 'Token não informado.',
+      autorizado: false as const,
+      status: 401,
+      erro: 'Token de autenticação não informado.',
     }
   }
 
-  const token =
-    authorization.replace('Bearer ', '')
-
-  const admin = criarAdminClient()
+  const token = authorization.replace(
+    'Bearer ',
+    ''
+  )
 
   const {
     data: { user },
     error: userError,
-  } = await admin.auth.getUser(token)
+  } =
+    await supabaseAdmin.auth.getUser(
+      token
+    )
 
-  if (userError || !user) {
+  if (
+    userError ||
+    !user
+  ) {
+    console.error(
+      'Erro ao validar usuário:',
+      userError
+    )
+
     return {
-      autorizado: false,
-      usuario: null,
-      erro: 'Sessão inválida.',
+      autorizado: false as const,
+      status: 401,
+      erro:
+        'Sessão inválida ou expirada.',
     }
   }
 
   const {
     data: perfil,
     error: perfilError,
-  } = await admin
+  } = await supabaseAdmin
     .from('perfis')
-    .select('perfil')
+    .select('id, nome, perfil')
     .eq('id', user.id)
     .single()
 
   if (
     perfilError ||
-    !perfil ||
-    perfil.perfil !== 'administrador'
+    !perfil
+  ) {
+    console.error(
+      'Erro ao consultar perfil:',
+      perfilError
+    )
+
+    return {
+      autorizado: false as const,
+      status: 403,
+      erro:
+        'Perfil de usuário não encontrado.',
+    }
+  }
+
+  if (
+    perfil.perfil !==
+    'administrador'
   ) {
     return {
-      autorizado: false,
-      usuario: user,
+      autorizado: false as const,
+      status: 403,
       erro:
-        'Apenas administradores podem acessar esta área.',
+        'Acesso permitido somente para administradores.',
     }
   }
 
   return {
-    autorizado: true,
-    usuario: user,
-    erro: null,
+    autorizado: true as const,
+    user,
+    perfil,
   }
 }
 
-/*
-====================================================
-LISTAR USUÁRIOS
-====================================================
-*/
+/* =========================================================
+   GET - LISTAR USUÁRIOS
+========================================================= */
 
 export async function GET(
   request: NextRequest
 ) {
   try {
-    const verificacao =
-      await verificarAdministrador(request)
+    const acesso =
+      await verificarAdministrador(
+        request
+      )
 
-    if (!verificacao.autorizado) {
+    if (!acesso.autorizado) {
       return NextResponse.json(
         {
-          error: verificacao.erro,
+          error: acesso.erro,
         },
         {
-          status: 403,
+          status: acesso.status,
         }
       )
     }
 
-    const admin = criarAdminClient()
-
     const {
-      data: usuariosAuth,
+      data: authData,
       error: authError,
     } =
-      await admin.auth.admin.listUsers({
-        page: 1,
-        perPage: 1000,
-      })
+      await supabaseAdmin.auth.admin.listUsers(
+        {
+          page: 1,
+          perPage: 1000,
+        }
+      )
 
     if (authError) {
+      console.error(
+        'Erro ao listar usuários do Auth:',
+        authError
+      )
+
       return NextResponse.json(
         {
-          error: authError.message,
+          error:
+            'Não foi possível carregar os usuários.',
         },
         {
           status: 500,
@@ -130,16 +176,22 @@ export async function GET(
     const {
       data: perfis,
       error: perfisError,
-    } = await admin
+    } = await supabaseAdmin
       .from('perfis')
       .select(
         'id, nome, perfil, criado_em'
       )
 
     if (perfisError) {
+      console.error(
+        'Erro ao carregar perfis:',
+        perfisError
+      )
+
       return NextResponse.json(
         {
-          error: perfisError.message,
+          error:
+            'Não foi possível carregar os perfis.',
         },
         {
           status: 500,
@@ -147,34 +199,48 @@ export async function GET(
       )
     }
 
-    const mapaPerfis = new Map(
-      (perfis || []).map((perfil) => [
-        perfil.id,
-        perfil,
-      ])
-    )
+    const mapaPerfis =
+      new Map(
+        (perfis || []).map(
+          (perfil) => [
+            perfil.id,
+            perfil,
+          ]
+        )
+      )
 
     const usuarios =
-      usuariosAuth.users.map(
+      authData.users.map(
         (usuario) => {
           const perfil =
-            mapaPerfis.get(usuario.id)
+            mapaPerfis.get(
+              usuario.id
+            )
 
           return {
             id: usuario.id,
+
             email:
               usuario.email || '',
+
             nome:
               perfil?.nome ||
-              'Sem nome',
+              usuario.email ||
+              'Usuário',
+
             perfil:
               perfil?.perfil ||
               'visualizador',
+
             criado_em:
-              usuario.created_at,
+              usuario.created_at ||
+              perfil?.criado_em ||
+              null,
+
             ultimo_login:
               usuario.last_sign_in_at ||
               null,
+
             confirmado:
               Boolean(
                 usuario.email_confirmed_at
@@ -194,12 +260,15 @@ export async function GET(
       usuarios,
     })
   } catch (error) {
-    console.error(error)
+    console.error(
+      'Erro inesperado GET /api/admin/usuarios:',
+      error
+    )
 
     return NextResponse.json(
       {
         error:
-          'Erro interno ao listar usuários.',
+          'Erro interno do servidor.',
       },
       {
         status: 500,
@@ -208,45 +277,52 @@ export async function GET(
   }
 }
 
-/*
-====================================================
-CRIAR USUÁRIO
-====================================================
-*/
+/* =========================================================
+   POST - CRIAR USUÁRIO
+========================================================= */
 
 export async function POST(
   request: NextRequest
 ) {
   try {
-    const verificacao =
-      await verificarAdministrador(request)
+    const acesso =
+      await verificarAdministrador(
+        request
+      )
 
-    if (!verificacao.autorizado) {
+    if (!acesso.autorizado) {
       return NextResponse.json(
         {
-          error: verificacao.erro,
+          error: acesso.erro,
         },
         {
-          status: 403,
+          status: acesso.status,
         }
       )
     }
 
-    const body = await request.json()
+    const body =
+      await request.json()
 
     const nome =
-      String(body.nome || '').trim()
+      typeof body.nome === 'string'
+        ? body.nome.trim()
+        : ''
 
     const email =
-      String(body.email || '')
-        .trim()
-        .toLowerCase()
+      typeof body.email === 'string'
+        ? body.email
+            .trim()
+            .toLowerCase()
+        : ''
 
     const senha =
-      String(body.senha || '')
+      typeof body.senha === 'string'
+        ? body.senha
+        : ''
 
     const perfil =
-      String(body.perfil || '')
+      body.perfil as PerfilUsuario
 
     if (!nome) {
       return NextResponse.json(
@@ -272,11 +348,11 @@ export async function POST(
       )
     }
 
-    if (senha.length < 6) {
+    if (senha.length < 8) {
       return NextResponse.json(
         {
           error:
-            'A senha deve possuir pelo menos 6 caracteres.',
+            'A senha deve possuir pelo menos 8 caracteres.',
         },
         {
           status: 400,
@@ -284,47 +360,68 @@ export async function POST(
       )
     }
 
-    const perfisPermitidos = [
-      'administrador',
-      'operador',
-      'visualizador',
-    ]
-
     if (
-      !perfisPermitidos.includes(perfil)
+      !perfisPermitidos.includes(
+        perfil
+      )
     ) {
       return NextResponse.json(
         {
           error:
-            'Perfil de acesso inválido.',
+            'Perfil de usuário inválido.',
         },
         {
           status: 400,
         }
       )
     }
-
-    const admin = criarAdminClient()
 
     const {
       data: novoUsuario,
-      error: createError,
+      error: criarError,
     } =
-      await admin.auth.admin.createUser({
-        email,
-        password: senha,
-        email_confirm: true,
-      })
+      await supabaseAdmin.auth.admin.createUser(
+        {
+          email,
+          password: senha,
+          email_confirm: true,
+        }
+      )
 
     if (
-      createError ||
+      criarError ||
       !novoUsuario.user
     ) {
+      console.error(
+        'Erro ao criar usuário:',
+        criarError
+      )
+
+      let mensagem =
+        'Não foi possível criar o usuário.'
+
+      const textoErro =
+        criarError?.message
+          ?.toLowerCase() || ''
+
+      if (
+        textoErro.includes(
+          'already'
+        ) ||
+        textoErro.includes(
+          'registered'
+        ) ||
+        textoErro.includes(
+          'exists'
+        )
+      ) {
+        mensagem =
+          'Já existe um usuário cadastrado com este e-mail.'
+      }
+
       return NextResponse.json(
         {
-          error:
-            createError?.message ||
-            'Não foi possível criar o usuário.',
+          error: mensagem,
         },
         {
           status: 400,
@@ -332,29 +429,33 @@ export async function POST(
       )
     }
 
-    const { error: perfilError } =
-      await admin
-        .from('perfis')
-        .insert({
-          id: novoUsuario.user.id,
-          nome,
-          perfil,
-        })
+    const {
+      error: perfilError,
+    } = await supabaseAdmin
+      .from('perfis')
+      .insert({
+        id:
+          novoUsuario.user.id,
+
+        nome,
+
+        perfil,
+      })
 
     if (perfilError) {
-      /*
-       * Caso não consiga criar o
-       * perfil, remove a conta para
-       * não deixar usuário incompleto.
-       */
-      await admin.auth.admin.deleteUser(
+      console.error(
+        'Erro ao criar perfil:',
+        perfilError
+      )
+
+      await supabaseAdmin.auth.admin.deleteUser(
         novoUsuario.user.id
       )
 
       return NextResponse.json(
         {
           error:
-            `Erro ao criar perfil: ${perfilError.message}`,
+            'Não foi possível criar o perfil do usuário.',
         },
         {
           status: 500,
@@ -362,18 +463,39 @@ export async function POST(
       )
     }
 
-    return NextResponse.json({
-      sucesso: true,
-      mensagem:
-        'Usuário criado com sucesso.',
-    })
+    return NextResponse.json(
+      {
+        sucesso: true,
+
+        message:
+          'Usuário criado com sucesso.',
+
+        usuario: {
+          id:
+            novoUsuario.user.id,
+
+          email:
+            novoUsuario.user.email,
+
+          nome,
+
+          perfil,
+        },
+      },
+      {
+        status: 201,
+      }
+    )
   } catch (error) {
-    console.error(error)
+    console.error(
+      'Erro inesperado POST /api/admin/usuarios:',
+      error
+    )
 
     return NextResponse.json(
       {
         error:
-          'Erro interno ao criar usuário.',
+          'Erro interno do servidor.',
       },
       {
         status: 500,
@@ -382,46 +504,43 @@ export async function POST(
   }
 }
 
-/*
-====================================================
-ALTERAR USUÁRIO
-====================================================
-*/
+/* =========================================================
+   PATCH - EDITAR USUÁRIO / REDEFINIR SENHA
+========================================================= */
 
 export async function PATCH(
   request: NextRequest
 ) {
   try {
-    const verificacao =
-      await verificarAdministrador(request)
+    const acesso =
+      await verificarAdministrador(
+        request
+      )
 
-    if (!verificacao.autorizado) {
+    if (!acesso.autorizado) {
       return NextResponse.json(
         {
-          error: verificacao.erro,
+          error: acesso.erro,
         },
         {
-          status: 403,
+          status: acesso.status,
         }
       )
     }
 
-    const body = await request.json()
+    const body =
+      await request.json()
 
     const id =
-      String(body.id || '')
+      typeof body.id === 'string'
+        ? body.id.trim()
+        : ''
 
-    const nome =
-      String(body.nome || '').trim()
-
-    const perfil =
-      String(body.perfil || '')
-
-    if (!id || !nome) {
+    if (!id) {
       return NextResponse.json(
         {
           error:
-            'Dados do usuário incompletos.',
+            'ID do usuário não informado.',
         },
         {
           status: 400,
@@ -429,78 +548,306 @@ export async function PATCH(
       )
     }
 
-    const perfisPermitidos = [
-      'administrador',
-      'operador',
-      'visualizador',
-    ]
+    const {
+      data: usuarioDestino,
+      error: usuarioError,
+    } =
+      await supabaseAdmin.auth.admin.getUserById(
+        id
+      )
 
     if (
-      !perfisPermitidos.includes(perfil)
+      usuarioError ||
+      !usuarioDestino.user
+    ) {
+      console.error(
+        'Usuário não encontrado:',
+        usuarioError
+      )
+
+      return NextResponse.json(
+        {
+          error:
+            'Usuário não encontrado.',
+        },
+        {
+          status: 404,
+        }
+      )
+    }
+
+    const alterarNome =
+      body.nome !== undefined
+
+    const alterarPerfil =
+      body.perfil !== undefined
+
+    const alterarSenha =
+      body.novaSenha !== undefined
+
+    if (
+      !alterarNome &&
+      !alterarPerfil &&
+      !alterarSenha
     ) {
       return NextResponse.json(
         {
           error:
-            'Perfil inválido.',
+            'Nenhuma alteração foi informada.',
         },
         {
           status: 400,
         }
       )
+    }
+
+    let nome:
+      | string
+      | undefined
+
+    if (alterarNome) {
+      if (
+        typeof body.nome !==
+        'string'
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'Nome inválido.',
+          },
+          {
+            status: 400,
+          }
+        )
+      }
+
+      nome =
+        body.nome.trim()
+
+      if (!nome) {
+        return NextResponse.json(
+          {
+            error:
+              'Informe o nome do usuário.',
+          },
+          {
+            status: 400,
+          }
+        )
+      }
+    }
+
+    let perfil:
+      | PerfilUsuario
+      | undefined
+
+    if (alterarPerfil) {
+      perfil =
+        body.perfil as PerfilUsuario
+
+      if (
+        !perfisPermitidos.includes(
+          perfil
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'Perfil de usuário inválido.',
+          },
+          {
+            status: 400,
+          }
+        )
+      }
+
+      if (
+        acesso.user.id === id &&
+        perfil !==
+          'administrador'
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'Você não pode remover sua própria permissão de administrador.',
+          },
+          {
+            status: 400,
+          }
+        )
+      }
     }
 
     /*
-     * Impede administrador de remover
-     * o próprio privilégio.
-     */
-    if (
-      verificacao.usuario?.id === id &&
-      perfil !== 'administrador'
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            'Você não pode remover seu próprio acesso de administrador.',
-        },
-        {
-          status: 400,
-        }
-      )
+      CORREÇÃO DO ERRO TS18048
+
+      Em vez de acessar novaSenha.length
+      quando ela ainda poderia ser undefined,
+      validamos primeiro senhaInformada.
+    */
+
+    let novaSenha:
+      | string
+      | undefined
+
+    if (alterarSenha) {
+      if (
+        typeof body.novaSenha !==
+        'string'
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'Nova senha inválida.',
+          },
+          {
+            status: 400,
+          }
+        )
+      }
+
+      const senhaInformada: string =
+        body.novaSenha
+
+      if (
+        senhaInformada.length < 8
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'A nova senha deve possuir pelo menos 8 caracteres.',
+          },
+          {
+            status: 400,
+          }
+        )
+      }
+
+      if (
+        senhaInformada.length > 72
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'A nova senha não pode ultrapassar 72 caracteres.',
+          },
+          {
+            status: 400,
+          }
+        )
+      }
+
+      novaSenha =
+        senhaInformada
     }
 
-    const admin = criarAdminClient()
+    if (
+      alterarNome ||
+      alterarPerfil
+    ) {
+      const atualizacaoPerfil: {
+        nome?: string
+        perfil?: PerfilUsuario
+      } = {}
 
-    const { error } = await admin
-      .from('perfis')
-      .upsert({
-        id,
-        nome,
-        perfil,
-      })
+      if (
+        nome !== undefined
+      ) {
+        atualizacaoPerfil.nome =
+          nome
+      }
 
-    if (error) {
-      return NextResponse.json(
-        {
-          error: error.message,
-        },
-        {
-          status: 500,
-        }
-      )
+      if (
+        perfil !== undefined
+      ) {
+        atualizacaoPerfil.perfil =
+          perfil
+      }
+
+      const {
+        error: atualizarPerfilError,
+      } = await supabaseAdmin
+        .from('perfis')
+        .update(
+          atualizacaoPerfil
+        )
+        .eq('id', id)
+
+      if (
+        atualizarPerfilError
+      ) {
+        console.error(
+          'Erro ao atualizar perfil:',
+          atualizarPerfilError
+        )
+
+        return NextResponse.json(
+          {
+            error:
+              'Não foi possível atualizar o usuário.',
+          },
+          {
+            status: 500,
+          }
+        )
+      }
+    }
+
+    if (
+      alterarSenha &&
+      novaSenha
+    ) {
+      const {
+        error: senhaError,
+      } =
+        await supabaseAdmin.auth.admin.updateUserById(
+          id,
+          {
+            password:
+              novaSenha,
+          }
+        )
+
+      if (senhaError) {
+        console.error(
+          'Erro ao redefinir senha:',
+          senhaError
+        )
+
+        return NextResponse.json(
+          {
+            error:
+              'Não foi possível redefinir a senha do usuário.',
+          },
+          {
+            status: 500,
+          }
+        )
+      }
     }
 
     return NextResponse.json({
       sucesso: true,
-      mensagem:
-        'Usuário atualizado com sucesso.',
+
+      message:
+        alterarSenha &&
+        !alterarNome &&
+        !alterarPerfil
+          ? 'Senha redefinida com sucesso.'
+          : alterarSenha
+            ? 'Usuário e senha atualizados com sucesso.'
+            : 'Usuário atualizado com sucesso.',
     })
   } catch (error) {
-    console.error(error)
+    console.error(
+      'Erro inesperado PATCH /api/admin/usuarios:',
+      error
+    )
 
     return NextResponse.json(
       {
         error:
-          'Erro interno ao atualizar usuário.',
+          'Erro interno do servidor.',
       },
       {
         status: 500,
@@ -509,40 +856,43 @@ export async function PATCH(
   }
 }
 
-/*
-====================================================
-EXCLUIR USUÁRIO
-====================================================
-*/
+/* =========================================================
+   DELETE - EXCLUIR USUÁRIO
+========================================================= */
 
 export async function DELETE(
   request: NextRequest
 ) {
   try {
-    const verificacao =
-      await verificarAdministrador(request)
+    const acesso =
+      await verificarAdministrador(
+        request
+      )
 
-    if (!verificacao.autorizado) {
+    if (!acesso.autorizado) {
       return NextResponse.json(
         {
-          error: verificacao.erro,
+          error: acesso.erro,
         },
         {
-          status: 403,
+          status: acesso.status,
         }
       )
     }
 
-    const body = await request.json()
+    const body =
+      await request.json()
 
     const id =
-      String(body.id || '')
+      typeof body.id === 'string'
+        ? body.id.trim()
+        : ''
 
     if (!id) {
       return NextResponse.json(
         {
           error:
-            'Usuário não informado.',
+            'ID do usuário não informado.',
         },
         {
           status: 400,
@@ -550,12 +900,8 @@ export async function DELETE(
       )
     }
 
-    /*
-     * Administrador não pode excluir
-     * a própria conta.
-     */
     if (
-      verificacao.usuario?.id === id
+      acesso.user.id === id
     ) {
       return NextResponse.json(
         {
@@ -568,17 +914,46 @@ export async function DELETE(
       )
     }
 
-    const admin = criarAdminClient()
-
-    const { error } =
-      await admin.auth.admin.deleteUser(
+    const {
+      data: usuarioDestino,
+      error: usuarioError,
+    } =
+      await supabaseAdmin.auth.admin.getUserById(
         id
       )
 
-    if (error) {
+    if (
+      usuarioError ||
+      !usuarioDestino.user
+    ) {
       return NextResponse.json(
         {
-          error: error.message,
+          error:
+            'Usuário não encontrado.',
+        },
+        {
+          status: 404,
+        }
+      )
+    }
+
+    const {
+      error: excluirError,
+    } =
+      await supabaseAdmin.auth.admin.deleteUser(
+        id
+      )
+
+    if (excluirError) {
+      console.error(
+        'Erro ao excluir usuário:',
+        excluirError
+      )
+
+      return NextResponse.json(
+        {
+          error:
+            'Não foi possível excluir o usuário.',
         },
         {
           status: 500,
@@ -588,16 +963,20 @@ export async function DELETE(
 
     return NextResponse.json({
       sucesso: true,
-      mensagem:
+
+      message:
         'Usuário excluído com sucesso.',
     })
   } catch (error) {
-    console.error(error)
+    console.error(
+      'Erro inesperado DELETE /api/admin/usuarios:',
+      error
+    )
 
     return NextResponse.json(
       {
         error:
-          'Erro interno ao excluir usuário.',
+          'Erro interno do servidor.',
       },
       {
         status: 500,

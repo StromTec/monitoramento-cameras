@@ -1,286 +1,1122 @@
 'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
+import {
+  FormEvent,
+  useEffect,
+  useState,
+} from 'react'
+
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+
 import {
   Camera,
   Eye,
   EyeOff,
+  Loader2,
   LockKeyhole,
+  LogIn,
   Mail,
+  ShieldCheck,
+  XCircle,
 } from 'lucide-react'
+
+import { supabase } from '@/lib/supabase'
 
 export default function LoginPage() {
   const router = useRouter()
 
-  const [email, setEmail] = useState('')
-  const [senha, setSenha] = useState('')
-  const [mostrarSenha, setMostrarSenha] = useState(false)
+  const [
+    verificandoSessao,
+    setVerificandoSessao,
+  ] = useState(true)
 
-  const [erro, setErro] = useState('')
-  const [carregando, setCarregando] = useState(false)
-  const [verificandoSessao, setVerificandoSessao] =
-    useState(true)
+  const [
+    email,
+    setEmail,
+  ] = useState('')
+
+  const [
+    senha,
+    setSenha,
+  ] = useState('')
+
+  const [
+    mostrarSenha,
+    setMostrarSenha,
+  ] = useState(false)
+
+  const [
+    carregando,
+    setCarregando,
+  ] = useState(false)
+
+  const [
+    erro,
+    setErro,
+  ] = useState('')
+
+  /*
+  =========================================================
+  VERIFICAR SE JÁ EXISTE SESSÃO
+  =========================================================
+  */
 
   useEffect(() => {
-    verificarSessao()
-  }, [])
+    async function verificarSessao() {
+      try {
+        const {
+          data: {
+            session,
+          },
+        } =
+          await supabase.auth.getSession()
 
-  async function verificarSessao() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+        if (session?.user) {
+          /*
+            Antes de liberar o Dashboard,
+            confirmamos se existe um perfil
+            cadastrado para este usuário.
+          */
 
-    if (user) {
-      router.replace('/dashboard')
-      return
+          const {
+            data: perfil,
+            error: perfilError,
+          } = await supabase
+            .from('perfis')
+            .select(
+              'id, nome, perfil'
+            )
+            .eq(
+              'id',
+              session.user.id
+            )
+            .single()
+
+          if (
+            !perfilError &&
+            perfil
+          ) {
+            router.replace(
+              '/dashboard'
+            )
+
+            return
+          }
+
+          /*
+            Caso exista uma sessão,
+            mas o usuário não possua perfil,
+            encerramos a sessão.
+          */
+
+          await supabase.auth.signOut()
+        }
+      } catch (error) {
+        console.error(
+          'Erro ao verificar sessão:',
+          error
+        )
+      } finally {
+        setVerificandoSessao(
+          false
+        )
+      }
     }
 
-    setVerificandoSessao(false)
-  }
+    verificarSessao()
+  }, [router])
 
-  async function entrar(event: FormEvent) {
+  /*
+  =========================================================
+  LOGIN
+  =========================================================
+  */
+
+  async function entrar(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault()
 
     setErro('')
-    setCarregando(true)
 
-    const { data, error } =
-      await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: senha,
-      })
+    const emailFormatado =
+      email
+        .trim()
+        .toLowerCase()
 
-    if (error || !data.user) {
-      setErro('E-mail ou senha inválidos.')
-      setCarregando(false)
-      return
-    }
-
-    const { data: perfilUsuario, error: perfilError } =
-      await supabase
-        .from('perfis')
-        .select('perfil')
-        .eq('id', data.user.id)
-        .single()
-
-    if (perfilError || !perfilUsuario) {
-      await supabase.auth.signOut()
-
+    if (!emailFormatado) {
       setErro(
-        'Seu usuário não possui um perfil cadastrado no sistema.'
+        'Informe seu e-mail.'
       )
 
-      setCarregando(false)
       return
     }
 
-    router.replace('/dashboard')
+    if (!senha) {
+      setErro(
+        'Informe sua senha.'
+      )
+
+      return
+    }
+
+    setCarregando(true)
+
+    try {
+      /*
+        Realiza login no Supabase Auth.
+      */
+
+      const {
+        data: loginData,
+        error: loginError,
+      } =
+        await supabase.auth.signInWithPassword(
+          {
+            email:
+              emailFormatado,
+
+            password:
+              senha,
+          }
+        )
+
+      if (
+        loginError ||
+        !loginData.user
+      ) {
+        console.error(
+          'Erro no login:',
+          loginError
+        )
+
+        throw new Error(
+          'E-mail ou senha incorretos.'
+        )
+      }
+
+      /*
+        Confirma se o usuário possui
+        um perfil válido no sistema.
+      */
+
+      const {
+        data: perfil,
+        error: perfilError,
+      } = await supabase
+        .from('perfis')
+        .select(
+          'id, nome, perfil'
+        )
+        .eq(
+          'id',
+          loginData.user.id
+        )
+        .single()
+
+      if (
+        perfilError ||
+        !perfil
+      ) {
+        console.error(
+          'Perfil não encontrado:',
+          perfilError
+        )
+
+        await supabase.auth.signOut()
+
+        throw new Error(
+          'Sua conta não possui permissão de acesso ao sistema.'
+        )
+      }
+
+      /*
+        Confirma que o perfil armazenado
+        possui um dos valores permitidos.
+      */
+
+      const perfisPermitidos = [
+        'administrador',
+        'operador',
+        'visualizador',
+      ]
+
+      if (
+        !perfisPermitidos.includes(
+          perfil.perfil
+        )
+      ) {
+        await supabase.auth.signOut()
+
+        throw new Error(
+          'O perfil desta conta é inválido. Entre em contato com o administrador.'
+        )
+      }
+
+      /*
+        Login aprovado.
+      */
+
+      router.replace(
+        '/dashboard'
+      )
+    } catch (error) {
+      console.error(error)
+
+      setErro(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível realizar o login.'
+      )
+    } finally {
+      setCarregando(false)
+    }
   }
+
+  /*
+  =========================================================
+  CARREGANDO SESSÃO
+  =========================================================
+  */
 
   if (verificandoSessao) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-white">
+      <main
+        className="
+          flex
+          min-h-screen
+          items-center
+          justify-center
+          bg-slate-950
+          text-slate-100
+        "
+      >
+        <div
+          className="
+            flex
+            items-center
+            gap-3
+            rounded-2xl
+            border
+            border-slate-800
+            bg-slate-900
+            px-6
+            py-4
+            shadow-2xl
+          "
+        >
+          <Loader2
+            className="
+              h-5
+              w-5
+              animate-spin
+              text-cyan-400
+            "
+          />
 
-        <div className="text-center">
-
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-700 border-t-sky-500" />
-
-          <p className="text-sm text-slate-400">
-            Verificando acesso...
-          </p>
-
+          <span
+            className="
+              text-sm
+              text-slate-300
+            "
+          >
+            Verificando sessão...
+          </span>
         </div>
-
       </main>
     )
   }
 
+  /*
+  =========================================================
+  INTERFACE
+  =========================================================
+  */
+
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 px-4 py-10">
+    <main
+      className="
+        relative
+        flex
+        min-h-screen
+        items-center
+        justify-center
+        overflow-hidden
+        bg-slate-950
+        px-4
+        py-10
+        text-slate-100
+      "
+    >
+      {/* ELEMENTOS DE FUNDO */}
 
-      {/* EFEITOS DE FUNDO */}
-      <div className="pointer-events-none absolute inset-0">
+      <div
+        className="
+          pointer-events-none
+          absolute
+          inset-0
+          overflow-hidden
+        "
+      >
+        <div
+          className="
+            absolute
+            -left-40
+            -top-40
+            h-96
+            w-96
+            rounded-full
+            bg-cyan-500/10
+            blur-3xl
+          "
+        />
 
-        <div className="absolute left-1/2 top-[-200px] h-[500px] w-[500px] -translate-x-1/2 rounded-full bg-sky-500/10 blur-3xl" />
+        <div
+          className="
+            absolute
+            -bottom-40
+            -right-40
+            h-96
+            w-96
+            rounded-full
+            bg-blue-500/10
+            blur-3xl
+          "
+        />
 
-        <div className="absolute bottom-[-200px] right-[-150px] h-[400px] w-[400px] rounded-full bg-blue-600/10 blur-3xl" />
-
+        <div
+          className="
+            absolute
+            left-1/2
+            top-1/2
+            h-[500px]
+            w-[500px]
+            -translate-x-1/2
+            -translate-y-1/2
+            rounded-full
+            bg-cyan-950/10
+            blur-3xl
+          "
+        />
       </div>
 
-      {/* LOGIN */}
-      <div className="relative z-10 w-full max-w-md">
+      <div
+        className="
+          relative
+          z-10
+          grid
+          w-full
+          max-w-5xl
+          overflow-hidden
+          rounded-3xl
+          border
+          border-slate-800
+          bg-slate-900/90
+          shadow-2xl
+          backdrop-blur-xl
+          lg:grid-cols-2
+        "
+      >
+        {/* =====================================================
+            LADO ESQUERDO
+        ===================================================== */}
 
-        {/* IDENTIDADE */}
-        <div className="mb-7 text-center">
+        <section
+          className="
+            relative
+            hidden
+            min-h-[650px]
+            overflow-hidden
+            border-r
+            border-slate-800
+            bg-slate-950
+            p-10
+            lg:flex
+            lg:flex-col
+            lg:justify-between
+          "
+        >
+          <div
+            className="
+              absolute
+              inset-0
+              bg-gradient-to-br
+              from-cyan-500/10
+              via-transparent
+              to-blue-500/5
+            "
+          />
 
-          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-sky-500/20 bg-sky-500/10 text-sky-400">
-
-            <Camera size={32} />
-
-          </div>
-
-          <p className="text-xs font-bold uppercase tracking-[0.3em] text-sky-400">
-            Smart City
-          </p>
-
-          <h1 className="mt-3 text-3xl font-bold tracking-tight text-white">
-            Monitoramento de Câmeras
-          </h1>
-
-          <p className="mt-3 text-sm leading-6 text-slate-400">
-            Acesse o painel de acompanhamento operacional.
-          </p>
-
-        </div>
-
-        {/* CARD */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-7 shadow-2xl backdrop-blur">
-
-          <div className="mb-6">
-
-            <h2 className="text-xl font-semibold text-white">
-              Acessar sistema
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-400">
-              Informe suas credenciais para continuar.
-            </p>
-
-          </div>
-
-          <form
-            onSubmit={entrar}
-            className="space-y-5"
+          <div
+            className="
+              relative
+              z-10
+            "
           >
+            <div
+              className="
+                inline-flex
+                items-center
+                gap-3
+                rounded-2xl
+                border
+                border-cyan-500/20
+                bg-cyan-500/10
+                px-4
+                py-3
+              "
+            >
+              <Camera
+                className="
+                  h-7
+                  w-7
+                  text-cyan-400
+                "
+              />
 
-            {/* EMAIL */}
-            <div>
+              <div>
+                <p
+                  className="
+                    text-sm
+                    font-bold
+                    tracking-wide
+                    text-slate-100
+                  "
+                >
+                  SMART CITY
+                </p>
 
-              <label
-                htmlFor="email"
-                className="mb-2 block text-sm font-medium text-slate-300"
-              >
-                E-mail
-              </label>
-
-              <div className="relative">
-
-                <Mail
-                  size={18}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
-                />
-
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) =>
-                    setEmail(e.target.value)
-                  }
-                  required
-                  autoComplete="email"
-                  placeholder="usuario@empresa.com"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-12 pr-4 text-white outline-none transition placeholder:text-slate-600 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10"
-                />
-
+                <p
+                  className="
+                    text-xs
+                    text-cyan-400
+                  "
+                >
+                  Monitoramento
+                </p>
               </div>
-
             </div>
 
-            {/* SENHA */}
-            <div>
-
-              <label
-                htmlFor="senha"
-                className="mb-2 block text-sm font-medium text-slate-300"
+            <div
+              className="
+                mt-16
+              "
+            >
+              <p
+                className="
+                  text-xs
+                  font-semibold
+                  uppercase
+                  tracking-[0.3em]
+                  text-cyan-400
+                "
               >
-                Senha
-              </label>
+                Centro de operações
+              </p>
 
-              <div className="relative">
+              <h1
+                className="
+                  mt-4
+                  max-w-md
+                  text-4xl
+                  font-bold
+                  leading-tight
+                  text-white
+                "
+              >
+                Monitoramento
+                inteligente de
+                câmeras
+              </h1>
 
-                <LockKeyhole
-                  size={18}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
-                />
+              <p
+                className="
+                  mt-5
+                  max-w-md
+                  text-sm
+                  leading-7
+                  text-slate-400
+                "
+              >
+                Ambiente centralizado
+                para acompanhamento da
+                disponibilidade,
+                implantação e evolução
+                do projeto.
+              </p>
+            </div>
+          </div>
 
-                <input
-                  id="senha"
-                  type={
-                    mostrarSenha
-                      ? 'text'
-                      : 'password'
-                  }
-                  value={senha}
-                  onChange={(e) =>
-                    setSenha(e.target.value)
-                  }
-                  required
-                  autoComplete="current-password"
-                  placeholder="Digite sua senha"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-12 pr-12 text-white outline-none transition placeholder:text-slate-600 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10"
-                />
+          <div
+            className="
+              relative
+              z-10
+              space-y-4
+            "
+          >
+            <div
+              className="
+                flex
+                items-center
+                gap-3
+                rounded-2xl
+                border
+                border-slate-800
+                bg-slate-900/60
+                p-4
+              "
+            >
+              <ShieldCheck
+                className="
+                  h-5
+                  w-5
+                  shrink-0
+                  text-emerald-400
+                "
+              />
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    setMostrarSenha(
-                      !mostrarSenha
-                    )
-                  }
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-300"
-                  title={
-                    mostrarSenha
-                      ? 'Ocultar senha'
-                      : 'Mostrar senha'
-                  }
+              <div>
+                <p
+                  className="
+                    text-sm
+                    font-medium
+                    text-slate-200
+                  "
                 >
+                  Acesso protegido
+                </p>
 
-                  {mostrarSenha ? (
-                    <EyeOff size={18} />
-                  ) : (
-                    <Eye size={18} />
-                  )}
+                <p
+                  className="
+                    mt-1
+                    text-xs
+                    text-slate-500
+                  "
+                >
+                  Apenas usuários
+                  autorizados podem
+                  acessar a plataforma.
+                </p>
+              </div>
+            </div>
 
-                </button>
+            <p
+              className="
+                text-xs
+                leading-relaxed
+                text-slate-600
+              "
+            >
+              Sistema de uso restrito.
+              As ações realizadas
+              podem ser registradas
+              para fins de auditoria.
+            </p>
+          </div>
+        </section>
 
+        {/* =====================================================
+            LOGIN
+        ===================================================== */}
+
+        <section
+          className="
+            flex
+            min-h-[650px]
+            items-center
+            p-6
+            sm:p-10
+            lg:p-12
+          "
+        >
+          <div
+            className="
+              mx-auto
+              w-full
+              max-w-md
+            "
+          >
+            {/* LOGO MOBILE */}
+
+            <div
+              className="
+                mb-8
+                flex
+                items-center
+                gap-3
+                lg:hidden
+              "
+            >
+              <div
+                className="
+                  rounded-xl
+                  border
+                  border-cyan-500/20
+                  bg-cyan-500/10
+                  p-2.5
+                "
+              >
+                <Camera
+                  className="
+                    h-6
+                    w-6
+                    text-cyan-400
+                  "
+                />
               </div>
 
+              <div>
+                <p
+                  className="
+                    font-bold
+                    text-slate-100
+                  "
+                >
+                  Smart City
+                </p>
+
+                <p
+                  className="
+                    text-xs
+                    text-cyan-400
+                  "
+                >
+                  Monitoramento
+                </p>
+              </div>
+            </div>
+
+            <div
+              className="
+                mb-8
+              "
+            >
+              <p
+                className="
+                  text-xs
+                  font-semibold
+                  uppercase
+                  tracking-[0.25em]
+                  text-cyan-400
+                "
+              >
+                Acesso ao sistema
+              </p>
+
+              <h2
+                className="
+                  mt-2
+                  text-3xl
+                  font-bold
+                  text-white
+                "
+              >
+                Bem-vindo
+              </h2>
+
+              <p
+                className="
+                  mt-3
+                  text-sm
+                  leading-relaxed
+                  text-slate-400
+                "
+              >
+                Entre com suas
+                credenciais para
+                acessar o painel de
+                monitoramento.
+              </p>
             </div>
 
             {/* ERRO */}
+
             {erro && (
-              <div className="rounded-xl border border-red-900/70 bg-red-950/40 p-4 text-sm text-red-300">
-                {erro}
+              <div
+                className="
+                  mb-6
+                  flex
+                  items-start
+                  gap-3
+                  rounded-2xl
+                  border
+                  border-red-500/30
+                  bg-red-500/10
+                  p-4
+                  text-sm
+                  text-red-200
+                "
+              >
+                <XCircle
+                  className="
+                    mt-0.5
+                    h-5
+                    w-5
+                    shrink-0
+                  "
+                />
+
+                <span>
+                  {erro}
+                </span>
               </div>
             )}
 
-            {/* ENTRAR */}
-            <button
-              type="submit"
-              disabled={carregando}
-              className="flex w-full items-center justify-center rounded-xl bg-sky-600 px-4 py-3 font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+            {/* FORMULÁRIO */}
+
+            <form
+              onSubmit={entrar}
+              className="
+                space-y-5
+              "
             >
+              {/* EMAIL */}
 
-              {carregando
-                ? 'Entrando...'
-                : 'Entrar'}
+              <div>
+                <label
+                  htmlFor="email"
+                  className="
+                    mb-2
+                    block
+                    text-sm
+                    font-medium
+                    text-slate-300
+                  "
+                >
+                  E-mail
+                </label>
 
-            </button>
+                <div
+                  className="
+                    relative
+                  "
+                >
+                  <Mail
+                    className="
+                      absolute
+                      left-4
+                      top-1/2
+                      h-5
+                      w-5
+                      -translate-y-1/2
+                      text-slate-600
+                    "
+                  />
 
-          </form>
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(
+                      event
+                    ) =>
+                      setEmail(
+                        event.target
+                          .value
+                      )
+                    }
+                    disabled={
+                      carregando
+                    }
+                    autoComplete="email"
+                    placeholder="usuario@empresa.com"
+                    className="
+                      w-full
+                      rounded-xl
+                      border
+                      border-slate-700
+                      bg-slate-950
+                      py-3.5
+                      pl-12
+                      pr-4
+                      text-slate-100
+                      outline-none
+                      transition
+                      placeholder:text-slate-600
+                      focus:border-cyan-500
+                      focus:ring-2
+                      focus:ring-cyan-500/10
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    "
+                  />
+                </div>
+              </div>
 
-        </div>
+              {/* SENHA */}
 
-        {/* RODAPÉ */}
-        <p className="mt-6 text-center text-xs text-slate-600">
-          Sistema de Monitoramento • Smart City
-        </p>
+              <div>
+                <div
+                  className="
+                    mb-2
+                    flex
+                    items-center
+                    justify-between
+                    gap-4
+                  "
+                >
+                  <label
+                    htmlFor="senha"
+                    className="
+                      text-sm
+                      font-medium
+                      text-slate-300
+                    "
+                  >
+                    Senha
+                  </label>
 
+                  {/* 17.3 - RECUPERAÇÃO */}
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(
+                        '/recuperar-senha'
+                      )
+                    }
+                    disabled={
+                      carregando
+                    }
+                    className="
+                      text-xs
+                      font-semibold
+                      text-cyan-400
+                      transition
+                      hover:text-cyan-300
+                      hover:underline
+                      disabled:opacity-50
+                    "
+                  >
+                    Esqueci minha senha
+                  </button>
+                </div>
+
+                <div
+                  className="
+                    relative
+                  "
+                >
+                  <LockKeyhole
+                    className="
+                      absolute
+                      left-4
+                      top-1/2
+                      h-5
+                      w-5
+                      -translate-y-1/2
+                      text-slate-600
+                    "
+                  />
+
+                  <input
+                    id="senha"
+                    type={
+                      mostrarSenha
+                        ? 'text'
+                        : 'password'
+                    }
+                    value={senha}
+                    onChange={(
+                      event
+                    ) =>
+                      setSenha(
+                        event.target
+                          .value
+                      )
+                    }
+                    disabled={
+                      carregando
+                    }
+                    autoComplete="current-password"
+                    placeholder="Digite sua senha"
+                    className="
+                      w-full
+                      rounded-xl
+                      border
+                      border-slate-700
+                      bg-slate-950
+                      py-3.5
+                      pl-12
+                      pr-12
+                      text-slate-100
+                      outline-none
+                      transition
+                      placeholder:text-slate-600
+                      focus:border-cyan-500
+                      focus:ring-2
+                      focus:ring-cyan-500/10
+                      disabled:cursor-not-allowed
+                      disabled:opacity-60
+                    "
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMostrarSenha(
+                        (
+                          valor
+                        ) => !valor
+                      )
+                    }
+                    disabled={
+                      carregando
+                    }
+                    aria-label={
+                      mostrarSenha
+                        ? 'Ocultar senha'
+                        : 'Mostrar senha'
+                    }
+                    className="
+                      absolute
+                      right-4
+                      top-1/2
+                      -translate-y-1/2
+                      text-slate-500
+                      transition
+                      hover:text-slate-200
+                      disabled:opacity-50
+                    "
+                  >
+                    {mostrarSenha ? (
+                      <EyeOff
+                        className="
+                          h-5
+                          w-5
+                        "
+                      />
+                    ) : (
+                      <Eye
+                        className="
+                          h-5
+                          w-5
+                        "
+                      />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* BOTÃO */}
+
+              <button
+                type="submit"
+                disabled={
+                  carregando
+                }
+                className="
+                  inline-flex
+                  w-full
+                  items-center
+                  justify-center
+                  gap-2
+                  rounded-xl
+                  bg-cyan-500
+                  px-5
+                  py-3.5
+                  font-semibold
+                  text-slate-950
+                  transition
+                  hover:bg-cyan-400
+                  focus:outline-none
+                  focus:ring-2
+                  focus:ring-cyan-500
+                  focus:ring-offset-2
+                  focus:ring-offset-slate-900
+                  disabled:cursor-not-allowed
+                  disabled:opacity-60
+                "
+              >
+                {carregando ? (
+                  <>
+                    <Loader2
+                      className="
+                        h-5
+                        w-5
+                        animate-spin
+                      "
+                    />
+
+                    Entrando...
+                  </>
+                ) : (
+                  <>
+                    <LogIn
+                      className="
+                        h-5
+                        w-5
+                      "
+                    />
+
+                    Entrar
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* RODAPÉ */}
+
+            <div
+              className="
+                mt-8
+                border-t
+                border-slate-800
+                pt-6
+              "
+            >
+              <div
+                className="
+                  flex
+                  items-start
+                  gap-3
+                  rounded-2xl
+                  border
+                  border-slate-800
+                  bg-slate-950/40
+                  p-4
+                "
+              >
+                <ShieldCheck
+                  className="
+                    mt-0.5
+                    h-5
+                    w-5
+                    shrink-0
+                    text-emerald-400
+                  "
+                />
+
+                <div>
+                  <p
+                    className="
+                      text-sm
+                      font-medium
+                      text-slate-300
+                    "
+                  >
+                    Ambiente seguro
+                  </p>
+
+                  <p
+                    className="
+                      mt-1
+                      text-xs
+                      leading-relaxed
+                      text-slate-500
+                    "
+                  >
+                    Suas credenciais são
+                    utilizadas somente
+                    para autenticação no
+                    sistema.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
-
     </main>
   )
 }
