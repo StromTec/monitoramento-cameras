@@ -27,11 +27,15 @@ type Historico = {
   instaladas_anterior: number | null
   online_anterior: number | null
   offline_anterior: number | null
+  offline_sem_furto_anterior: number | null
+  furtadas_anterior: number | null
   observacao_anterior: string | null
 
   instaladas_novo: number | null
   online_novo: number | null
   offline_novo: number | null
+  offline_sem_furto_novo: number | null
+  furtadas_novo: number | null
   observacao_novo: string | null
 
   criado_em: string
@@ -739,7 +743,7 @@ export default function HistoricoPage() {
                           Antes
                         </p>
 
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
 
                           <Valor
                             titulo="Instaladas"
@@ -756,9 +760,23 @@ export default function HistoricoPage() {
                           />
 
                           <Valor
-                            titulo="Offline"
+                            titulo="Offline geral"
                             valor={formatarNumero(
                               item.offline_anterior
+                            )}
+                          />
+
+                          <Valor
+                            titulo="Sem furto"
+                            valor={formatarNumero(
+                              item.offline_sem_furto_anterior
+                            )}
+                          />
+
+                          <Valor
+                            titulo="Furtadas"
+                            valor={formatarNumero(
+                              item.furtadas_anterior
                             )}
                           />
 
@@ -789,7 +807,7 @@ export default function HistoricoPage() {
                           Depois
                         </p>
 
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
 
                           <Valor
                             titulo="Instaladas"
@@ -806,9 +824,23 @@ export default function HistoricoPage() {
                           />
 
                           <Valor
-                            titulo="Offline"
+                            titulo="Offline geral"
                             valor={formatarNumero(
                               item.offline_novo
+                            )}
+                          />
+
+                          <Valor
+                            titulo="Sem furto"
+                            valor={formatarNumero(
+                              item.offline_sem_furto_novo
+                            )}
+                          />
+
+                          <Valor
+                            titulo="Furtadas"
+                            valor={formatarNumero(
+                              item.furtadas_novo
                             )}
                           />
 

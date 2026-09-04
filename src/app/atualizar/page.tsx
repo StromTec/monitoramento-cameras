@@ -1,807 +1,584 @@
 'use client'
 
-import {
-  FormEvent,
-  useEffect,
-  useState,
-} from 'react'
-
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
-
 import {
+  AlertTriangle,
   ArrowLeft,
   Camera,
-  CircleCheck,
-  CircleX,
+  CheckCircle2,
+  Loader2,
   Save,
   ShieldAlert,
+  Wifi,
+  WifiOff,
 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+
+type Perfil = 'administrador' | 'operador' | 'visualizador'
+
+type PerfilUsuario = {
+  nome: string
+  perfil: Perfil
+}
 
 export default function AtualizarPage() {
   const router = useRouter()
 
-  const [carregando, setCarregando] =
-    useState(true)
+  const [carregandoPagina, setCarregandoPagina] = useState(true)
+  const [salvando, setSalvando] = useState(false)
 
-  const [salvando, setSalvando] =
-    useState(false)
+  const [usuario, setUsuario] = useState<PerfilUsuario | null>(null)
 
-  const [erro, setErro] =
-    useState('')
+  const [data, setData] = useState('')
+  const [instaladas, setInstaladas] = useState('')
+  const [online, setOnline] = useState('')
+  const [offline, setOffline] = useState('')
+  const [offlineSemFurto, setOfflineSemFurto] = useState('')
+  const [furtadas, setFurtadas] = useState('')
+  const [observacao, setObservacao] = useState('')
 
-  const [sucesso, setSucesso] =
-    useState('')
-
-  const [nomeUsuario, setNomeUsuario] =
-    useState('')
-
-  const [perfil, setPerfil] =
-    useState('')
-
-  const [data, setData] =
-    useState('')
-
-  const [
-    camerasInstaladas,
-    setCamerasInstaladas,
-  ] = useState('')
-
-  const [
-    camerasOnline,
-    setCamerasOnline,
-  ] = useState('')
-
-  const [
-    camerasOffline,
-    setCamerasOffline,
-  ] = useState('')
-
-  const [
-    observacao,
-    setObservacao,
-  ] = useState('')
+  const [erro, setErro] = useState('')
+  const [sucesso, setSucesso] = useState('')
 
   useEffect(() => {
     verificarPermissao()
   }, [])
 
   async function verificarPermissao() {
-    setCarregando(true)
-    setErro('')
+    try {
+      setCarregandoPagina(true)
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
+      const {
+        data: { user },
+        error: erroUsuario,
+      } = await supabase.auth.getUser()
 
-    if (userError || !user) {
-      router.replace('/login')
-      return
+      if (erroUsuario || !user) {
+        router.replace('/login')
+        return
+      }
+
+      const { data: perfil, error: erroPerfil } = await supabase
+        .from('perfis')
+        .select('nome, perfil')
+        .eq('id', user.id)
+        .single()
+
+      if (erroPerfil || !perfil) {
+        await supabase.auth.signOut()
+        router.replace('/login')
+        return
+      }
+
+      if (
+        perfil.perfil !== 'administrador' &&
+        perfil.perfil !== 'operador'
+      ) {
+        router.replace('/dashboard')
+        return
+      }
+
+      setUsuario({
+        nome: perfil.nome,
+        perfil: perfil.perfil,
+      })
+
+      await carregarUltimosDados()
+    } catch (error) {
+      console.error(error)
+      setErro('Não foi possível carregar a página.')
+    } finally {
+      setCarregandoPagina(false)
     }
-
-    const {
-      data: perfilUsuario,
-      error: perfilError,
-    } = await supabase
-      .from('perfis')
-      .select('nome, perfil')
-      .eq('id', user.id)
-      .single()
-
-    if (
-      perfilError ||
-      !perfilUsuario
-    ) {
-      console.error(perfilError)
-
-      await supabase.auth.signOut()
-
-      router.replace('/login')
-
-      return
-    }
-
-    const perfilAtual =
-      perfilUsuario.perfil
-
-    const autorizado =
-      perfilAtual ===
-        'administrador' ||
-      perfilAtual ===
-        'operador'
-
-    if (!autorizado) {
-      router.replace('/dashboard')
-      return
-    }
-
-    setNomeUsuario(
-      perfilUsuario.nome
-    )
-
-    setPerfil(
-      perfilAtual
-    )
-
-    await carregarUltimosDados()
   }
 
   async function carregarUltimosDados() {
-    const {
-      data: ultimoRegistro,
-      error,
-    } = await supabase
+    const hoje = new Date().toISOString().split('T')[0]
+    setData(hoje)
+
+    const { data: ultimoRegistro, error } = await supabase
       .from('monitoramento_diario')
       .select(
         `
-          cameras_instaladas,
-          cameras_online,
-          cameras_offline
+        cameras_instaladas,
+        cameras_online,
+        cameras_offline,
+        cameras_offline_sem_furto,
+        cameras_furtadas,
+        observacao
         `
       )
-      .order('data', {
-        ascending: false,
-      })
+      .order('data', { ascending: false })
       .limit(1)
       .maybeSingle()
 
     if (error) {
       console.error(error)
-
-      setErro(
-        `Erro ao carregar os dados atuais: ${error.message}`
-      )
-
-      setCarregando(false)
-
       return
     }
 
-    if (ultimoRegistro) {
-      setCamerasInstaladas(
-        String(
-          ultimoRegistro.cameras_instaladas
-        )
-      )
-
-      setCamerasOnline(
-        String(
-          ultimoRegistro.cameras_online
-        )
-      )
-
-      setCamerasOffline(
-        String(
-          ultimoRegistro.cameras_offline
-        )
-      )
+    if (!ultimoRegistro) {
+      return
     }
 
-    const hoje =
-      new Date()
-
-    const ano =
-      hoje.getFullYear()
-
-    const mes =
-      String(
-        hoje.getMonth() + 1
-      ).padStart(2, '0')
-
-    const dia =
-      String(
-        hoje.getDate()
-      ).padStart(2, '0')
-
-    setData(
-      `${ano}-${mes}-${dia}`
+    setInstaladas(String(ultimoRegistro.cameras_instaladas ?? 0))
+    setOnline(String(ultimoRegistro.cameras_online ?? 0))
+    setOffline(String(ultimoRegistro.cameras_offline ?? 0))
+    setOfflineSemFurto(
+      String(ultimoRegistro.cameras_offline_sem_furto ?? 0)
     )
-
-    setCarregando(false)
+    setFurtadas(String(ultimoRegistro.cameras_furtadas ?? 0))
+    setObservacao(ultimoRegistro.observacao ?? '')
   }
 
-  async function salvar(
-    event: FormEvent
-  ) {
+  const valores = useMemo(() => {
+    const total = Number(instaladas)
+    const totalOnline = Number(online)
+    const totalOffline = Number(offline)
+    const semFurto = Number(offlineSemFurto)
+    const totalFurtadas = Number(furtadas)
+
+    return {
+      instaladas: Number.isFinite(total) ? total : 0,
+      online: Number.isFinite(totalOnline) ? totalOnline : 0,
+      offline: Number.isFinite(totalOffline) ? totalOffline : 0,
+      offlineSemFurto: Number.isFinite(semFurto) ? semFurto : 0,
+      furtadas: Number.isFinite(totalFurtadas) ? totalFurtadas : 0,
+    }
+  }, [instaladas, online, offline, offlineSemFurto, furtadas])
+
+  const statusTotalCorreto =
+    valores.online + valores.offline === valores.instaladas
+
+  const statusOfflineCorreto =
+    valores.offlineSemFurto + valores.furtadas === valores.offline
+
+  const dadosConsistentes =
+    statusTotalCorreto &&
+    statusOfflineCorreto &&
+    valores.instaladas >= 0 &&
+    valores.online >= 0 &&
+    valores.offline >= 0 &&
+    valores.offlineSemFurto >= 0 &&
+    valores.furtadas >= 0
+
+  async function salvar(event: FormEvent) {
     event.preventDefault()
 
     setErro('')
     setSucesso('')
 
-    const instaladas =
-      Number(camerasInstaladas)
-
-    const online =
-      Number(camerasOnline)
-
-    const offline =
-      Number(camerasOffline)
-
     if (!data) {
-      setErro(
-        'Informe a data da atualização.'
-      )
+      setErro('Informe a data da atualização.')
       return
     }
 
     if (
-      !Number.isInteger(
-        instaladas
-      ) ||
-      !Number.isInteger(online) ||
-      !Number.isInteger(offline)
+      instaladas === '' ||
+      online === '' ||
+      offline === '' ||
+      offlineSemFurto === '' ||
+      furtadas === ''
     ) {
+      setErro('Preencha todos os campos numéricos.')
+      return
+    }
+
+    const campos = [
+      valores.instaladas,
+      valores.online,
+      valores.offline,
+      valores.offlineSemFurto,
+      valores.furtadas,
+    ]
+
+    if (campos.some((valor) => !Number.isInteger(valor))) {
+      setErro('Todos os valores precisam ser números inteiros.')
+      return
+    }
+
+    if (campos.some((valor) => valor < 0)) {
+      setErro('Os valores não podem ser negativos.')
+      return
+    }
+
+    if (!statusTotalCorreto) {
       setErro(
-        'Os valores das câmeras devem ser números inteiros.'
+        `Dados inconsistentes: Online (${valores.online}) + Offline geral (${valores.offline}) deve ser igual a Instaladas (${valores.instaladas}).`
       )
       return
     }
 
-    if (
-      instaladas < 0 ||
-      online < 0 ||
-      offline < 0
-    ) {
+    if (!statusOfflineCorreto) {
       setErro(
-        'Os valores não podem ser negativos.'
+        `Dados inconsistentes: Sem furto (${valores.offlineSemFurto}) + Furtadas (${valores.furtadas}) deve ser igual ao Offline geral (${valores.offline}).`
       )
       return
     }
 
-    if (
-      online + offline !==
-      instaladas
-    ) {
-      setErro(
-        `A soma de Online (${online}) + Offline (${offline}) deve ser igual ao total de câmeras instaladas (${instaladas}).`
-      )
-      return
-    }
+    try {
+      setSalvando(true)
 
-    setSalvando(true)
+      const {
+        data: { user },
+        error: erroUsuario,
+      } = await supabase.auth.getUser()
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
+      if (erroUsuario || !user) {
+        router.replace('/login')
+        return
+      }
 
-    if (
-      userError ||
-      !user
-    ) {
+      const { data: perfil, error: erroPerfil } = await supabase
+        .from('perfis')
+        .select('nome, perfil')
+        .eq('id', user.id)
+        .single()
+
+      if (erroPerfil || !perfil) {
+        setErro('Não foi possível validar sua permissão.')
+        return
+      }
+
+      if (
+        perfil.perfil !== 'administrador' &&
+        perfil.perfil !== 'operador'
+      ) {
+        setErro('Você não possui permissão para atualizar os dados.')
+        return
+      }
+
+      const { error: erroSalvar } = await supabase
+        .from('monitoramento_diario')
+        .upsert(
+          {
+            data,
+            cameras_instaladas: valores.instaladas,
+            cameras_online: valores.online,
+            cameras_offline: valores.offline,
+            cameras_offline_sem_furto: valores.offlineSemFurto,
+            cameras_furtadas: valores.furtadas,
+            observacao: observacao.trim() || null,
+          },
+          {
+            onConflict: 'data',
+          }
+        )
+
+      if (erroSalvar) {
+        console.error(erroSalvar)
+        setErro(`Erro ao salvar: ${erroSalvar.message}`)
+        return
+      }
+
+      setSucesso('Dados atualizados com sucesso.')
+
+      setTimeout(() => {
+        router.push('/dashboard')
+      }, 1200)
+    } catch (error) {
+      console.error(error)
+      setErro('Ocorreu um erro inesperado ao salvar os dados.')
+    } finally {
       setSalvando(false)
-
-      router.replace('/login')
-
-      return
     }
-
-    /*
-      Conferimos novamente o perfil
-      antes de gravar.
-
-      A segurança principal continua
-      sendo o RLS do Supabase.
-    */
-    const {
-      data: perfilAtual,
-      error: perfilError,
-    } = await supabase
-      .from('perfis')
-      .select('perfil')
-      .eq('id', user.id)
-      .single()
-
-    if (
-      perfilError ||
-      !perfilAtual
-    ) {
-      setSalvando(false)
-
-      setErro(
-        'Não foi possível validar sua permissão.'
-      )
-
-      return
-    }
-
-    if (
-      perfilAtual.perfil !==
-        'administrador' &&
-      perfilAtual.perfil !==
-        'operador'
-    ) {
-      setSalvando(false)
-
-      setErro(
-        'Você não possui permissão para atualizar os dados.'
-      )
-
-      router.replace('/dashboard')
-
-      return
-    }
-
-    const {
-      error: salvarError,
-    } = await supabase
-      .from(
-        'monitoramento_diario'
-      )
-      .upsert(
-        {
-          data,
-          cameras_instaladas:
-            instaladas,
-          cameras_online:
-            online,
-          cameras_offline:
-            offline,
-          observacao:
-            observacao.trim() ||
-            null,
-        },
-        {
-          onConflict: 'data',
-        }
-      )
-
-    if (salvarError) {
-      console.error(
-        salvarError
-      )
-
-      setErro(
-        `Erro ao salvar atualização: ${salvarError.message}`
-      )
-
-      setSalvando(false)
-
-      return
-    }
-
-    setSucesso(
-      'Dados atualizados com sucesso.'
-    )
-
-    setSalvando(false)
-
-    setTimeout(() => {
-      router.push('/dashboard')
-    }, 1000)
   }
 
-  const instaladasNumero =
-    Number(camerasInstaladas) ||
-    0
-
-  const onlineNumero =
-    Number(camerasOnline) ||
-    0
-
-  const offlineNumero =
-    Number(camerasOffline) ||
-    0
-
-  const percentualOnline =
-    instaladasNumero > 0
-      ? (onlineNumero /
-          instaladasNumero) *
-        100
-      : 0
-
-  const percentualOffline =
-    instaladasNumero > 0
-      ? (offlineNumero /
-          instaladasNumero) *
-        100
-      : 0
-
-  if (carregando) {
+  if (carregandoPagina) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
-
-        <div className="text-center">
-
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-800 border-t-sky-500" />
-
-          <p className="text-sm text-slate-400">
-            Verificando permissão...
-          </p>
-
+        <div className="flex items-center gap-3 text-slate-300">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Carregando...
         </div>
-
       </main>
     )
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-
-      {/* CABEÇALHO */}
-      <header className="border-b border-slate-800 bg-slate-900/80">
-
-        <div className="mx-auto flex max-w-5xl items-center gap-4 px-6 py-5">
-
-          <button
-            type="button"
-            onClick={() =>
-              router.push(
-                '/dashboard'
-              )
-            }
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-700 text-slate-300 transition hover:bg-slate-800"
-          >
-            <ArrowLeft
-              size={18}
-            />
-          </button>
-
+    <main className="min-h-screen bg-slate-950 px-4 py-8 text-white sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
+            <button
+              type="button"
+              onClick={() => router.push('/dashboard')}
+              className="mb-4 inline-flex items-center gap-2 text-sm text-slate-400 transition hover:text-white"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Voltar ao dashboard
+            </button>
 
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-sky-400">
-              Smart City
-            </p>
+            <div className="flex items-center gap-3">
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+                <Camera className="h-6 w-6 text-cyan-400" />
+              </div>
 
-            <h1 className="mt-1 text-2xl font-bold">
-              Atualizar Monitoramento
-            </h1>
+              <div>
+                <h1 className="text-2xl font-bold sm:text-3xl">
+                  Atualizar monitoramento
+                </h1>
 
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-400">
-
-              <span>
-                {nomeUsuario}
-              </span>
-
-              <span>
-                •
-              </span>
-
-              <span>
-                {perfil ===
-                'administrador'
-                  ? 'Administrador'
-                  : 'Operador'}
-              </span>
-
+                <p className="mt-1 text-sm text-slate-400">
+                  Atualização manual do status geral das câmeras.
+                </p>
+              </div>
             </div>
-
           </div>
 
+          {usuario && (
+            <div className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
+              <p className="text-sm font-medium text-white">{usuario.nome}</p>
+              <p className="mt-1 text-xs capitalize text-slate-400">
+                {usuario.perfil}
+              </p>
+            </div>
+          )}
         </div>
 
-      </header>
-
-      <section className="mx-auto max-w-5xl px-6 py-8">
-
-        {/* AVISO */}
-        <div className="mb-6 flex gap-3 rounded-2xl border border-sky-500/20 bg-sky-500/5 p-5">
-
-          <ShieldAlert
-            size={22}
-            className="mt-0.5 shrink-0 text-sky-400"
-          />
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
 
           <div>
-
-            <p className="font-semibold text-slate-200">
-              Área restrita
+            <p className="font-medium text-amber-200">Área restrita</p>
+            <p className="mt-1 text-sm text-amber-100/70">
+              Apenas administradores e operadores podem alterar os números do
+              monitoramento.
             </p>
-
-            <p className="mt-1 text-sm leading-6 text-slate-400">
-              Somente administradores e operadores autorizados podem alterar os dados do monitoramento.
-            </p>
-
           </div>
-
         </div>
-
-        {erro && (
-          <div className="mb-6 rounded-xl border border-red-900 bg-red-950/40 p-4 text-sm text-red-300">
-            {erro}
-          </div>
-        )}
-
-        {sucesso && (
-          <div className="mb-6 rounded-xl border border-emerald-900 bg-emerald-950/40 p-4 text-sm text-emerald-300">
-            {sucesso}
-          </div>
-        )}
 
         <form
           onSubmit={salvar}
-          className="rounded-2xl border border-slate-800 bg-slate-900 p-6"
+          className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl sm:p-7"
         >
+          <div className="grid gap-5 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-slate-300">
+                Data de referência
+              </label>
 
-          <div>
+              <input
+                type="date"
+                value={data}
+                onChange={(event) => setData(event.target.value)}
+                disabled={salvando}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-500"
+              />
+            </div>
 
-            <h2 className="text-xl font-semibold">
-              Dados da operação
-            </h2>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-300">
+                Câmeras instaladas
+              </label>
 
-            <p className="mt-1 text-sm text-slate-400">
-              Informe os números atuais do sistema.
-            </p>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={instaladas}
+                onChange={(event) => setInstaladas(event.target.value)}
+                disabled={salvando}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-500"
+              />
+            </div>
 
+            <div>
+              <label className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-300">
+                <Wifi className="h-4 w-4 text-emerald-400" />
+                Online
+              </label>
+
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={online}
+                onChange={(event) => setOnline(event.target.value)}
+                disabled={salvando}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-300">
+                <WifiOff className="h-4 w-4 text-red-400" />
+                Offline geral
+              </label>
+
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={offline}
+                onChange={(event) => setOffline(event.target.value)}
+                disabled={salvando}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-red-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-300">
+                Offline sem furto
+              </label>
+
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={offlineSemFurto}
+                onChange={(event) => setOfflineSemFurto(event.target.value)}
+                disabled={salvando}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-orange-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-300">
+                Furtadas
+              </label>
+
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={furtadas}
+                onChange={(event) => setFurtadas(event.target.value)}
+                disabled={salvando}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-rose-500"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-slate-300">
+                Observação
+              </label>
+
+              <textarea
+                value={observacao}
+                onChange={(event) => setObservacao(event.target.value)}
+                disabled={salvando}
+                rows={4}
+                placeholder="Informações adicionais sobre esta atualização..."
+                className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-500"
+              />
+            </div>
           </div>
 
-          {/* DATA */}
-          <div className="mt-6">
-
-            <label className="mb-2 block text-sm font-medium text-slate-300">
-              Data da atualização
-            </label>
-
-            <input
-              type="date"
-              value={data}
-              onChange={(
-                event
-              ) =>
-                setData(
-                  event.target
-                    .value
-                )
-              }
-              required
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-sky-500"
-            />
-
-          </div>
-
-          {/* NÚMEROS */}
-          <div className="mt-5 grid gap-5 md:grid-cols-3">
-
-            <CampoNumero
-              titulo="Câmeras instaladas"
-              valor={
-                camerasInstaladas
-              }
-              alterar={
-                setCamerasInstaladas
-              }
-              icone={
-                <Camera
-                  size={18}
-                />
-              }
-            />
-
-            <CampoNumero
-              titulo="Câmeras online"
-              valor={
-                camerasOnline
-              }
-              alterar={
-                setCamerasOnline
-              }
-              icone={
-                <CircleCheck
-                  size={18}
-                />
-              }
-            />
-
-            <CampoNumero
-              titulo="Câmeras offline"
-              valor={
-                camerasOffline
-              }
-              alterar={
-                setCamerasOffline
-              }
-              icone={
-                <CircleX
-                  size={18}
-                />
-              }
-            />
-
-          </div>
-
-          {/* PRÉVIA */}
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
-
-            <Resumo
-              titulo="Instaladas"
-              valor={
-                instaladasNumero
-              }
-            />
-
-            <Resumo
-              titulo="Online"
-              valor={
-                onlineNumero
-              }
-              detalhe={`${percentualOnline.toFixed(
-                2
-              )}%`}
-            />
-
-            <Resumo
-              titulo="Offline"
-              valor={
-                offlineNumero
-              }
-              detalhe={`${percentualOffline.toFixed(
-                2
-              )}%`}
-            />
-
-          </div>
-
-          {/* VALIDAÇÃO VISUAL */}
-          {instaladasNumero >
-            0 && (
+          <div className="mt-7 grid gap-4 lg:grid-cols-2">
             <div
-              className={`mt-5 rounded-xl border p-4 text-sm ${
-                onlineNumero +
-                  offlineNumero ===
-                instaladasNumero
-                  ? 'border-emerald-900 bg-emerald-950/30 text-emerald-300'
-                  : 'border-amber-900 bg-amber-950/30 text-amber-300'
+              className={`rounded-xl border p-4 ${
+                statusTotalCorreto
+                  ? 'border-emerald-500/20 bg-emerald-500/10'
+                  : 'border-red-500/20 bg-red-500/10'
               }`}
             >
+              <div className="flex gap-3">
+                {statusTotalCorreto ? (
+                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5 shrink-0 text-red-400" />
+                )}
 
-              {onlineNumero +
-                offlineNumero ===
-              instaladasNumero
-                ? 'Os valores estão consistentes: Online + Offline = Instaladas.'
-                : `Atenção: Online + Offline = ${
-                    onlineNumero +
-                    offlineNumero
-                  }, mas existem ${instaladasNumero} câmeras instaladas.`}
+                <div>
+                  <p className="text-sm font-semibold">
+                    Total do monitoramento
+                  </p>
 
+                  <p className="mt-1 text-sm text-slate-300">
+                    {valores.online.toLocaleString('pt-BR')} Online +{' '}
+                    {valores.offline.toLocaleString('pt-BR')} Offline ={' '}
+                    {(valores.online + valores.offline).toLocaleString('pt-BR')}
+                  </p>
+
+                  <p className="mt-1 text-xs text-slate-400">
+                    Instaladas: {valores.instaladas.toLocaleString('pt-BR')}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className={`rounded-xl border p-4 ${
+                statusOfflineCorreto
+                  ? 'border-emerald-500/20 bg-emerald-500/10'
+                  : 'border-red-500/20 bg-red-500/10'
+              }`}
+            >
+              <div className="flex gap-3">
+                {statusOfflineCorreto ? (
+                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5 shrink-0 text-red-400" />
+                )}
+
+                <div>
+                  <p className="text-sm font-semibold">
+                    Composição do Offline
+                  </p>
+
+                  <p className="mt-1 text-sm text-slate-300">
+                    {valores.offlineSemFurto.toLocaleString('pt-BR')} Sem furto
+                    {' + '}
+                    {valores.furtadas.toLocaleString('pt-BR')} Furtadas ={' '}
+                    {(
+                      valores.offlineSemFurto + valores.furtadas
+                    ).toLocaleString('pt-BR')}
+                  </p>
+
+                  <p className="mt-1 text-xs text-slate-400">
+                    Offline geral: {valores.offline.toLocaleString('pt-BR')}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {erro && (
+            <div className="mt-5 flex gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
+              <AlertTriangle className="h-5 w-5 shrink-0" />
+              <span>{erro}</span>
             </div>
           )}
 
-          {/* OBSERVAÇÃO */}
-          <div className="mt-6">
+          {sucesso && (
+            <div className="mt-5 flex gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+              <CheckCircle2 className="h-5 w-5 shrink-0" />
+              <span>{sucesso}</span>
+            </div>
+          )}
 
-            <label className="mb-2 block text-sm font-medium text-slate-300">
-              Observação
-            </label>
-
-            <textarea
-              value={
-                observacao
-              }
-              onChange={(
-                event
-              ) =>
-                setObservacao(
-                  event.target
-                    .value
-                )
-              }
-              rows={4}
-              placeholder="Ex.: Atualização realizada após conferência da operação..."
-              className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition placeholder:text-slate-600 focus:border-sky-500"
-            />
-
-          </div>
-
-          {/* BOTÕES */}
           <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-
             <button
               type="button"
-              onClick={() =>
-                router.push(
-                  '/dashboard'
-                )
-              }
-              className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+              onClick={() => router.push('/dashboard')}
+              disabled={salvando}
+              className="rounded-xl border border-slate-700 px-5 py-3 font-medium text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Cancelar
             </button>
 
             <button
               type="submit"
-              disabled={salvando}
-              className="flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={salvando || !dadosConsistentes}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-5 py-3 font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
             >
-
-              <Save
-                size={17}
-              />
-
-              {salvando
-                ? 'Salvando...'
-                : 'Salvar atualização'}
-
+              {salvando ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                <>
+                  <Save className="h-5 w-5" />
+                  Salvar atualização
+                </>
+              )}
             </button>
-
           </div>
-
         </form>
-
-      </section>
-
-    </main>
-  )
-}
-
-function CampoNumero({
-  titulo,
-  valor,
-  alterar,
-  icone,
-}: {
-  titulo: string
-  valor: string
-  alterar: (
-    valor: string
-  ) => void
-  icone: React.ReactNode
-}) {
-  return (
-    <div>
-
-      <label className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-300">
-
-        <span className="text-sky-400">
-          {icone}
-        </span>
-
-        {titulo}
-
-      </label>
-
-      <input
-        type="number"
-        min="0"
-        step="1"
-        value={valor}
-        onChange={(
-          event
-        ) =>
-          alterar(
-            event.target.value
-          )
-        }
-        required
-        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-sky-500"
-      />
-
-    </div>
-  )
-}
-
-function Resumo({
-  titulo,
-  valor,
-  detalhe,
-}: {
-  titulo: string
-  valor: number
-  detalhe?: string
-}) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-
-      <p className="text-xs uppercase tracking-wider text-slate-500">
-        {titulo}
-      </p>
-
-      <div className="mt-2 flex items-end justify-between gap-2">
-
-        <p className="text-2xl font-bold">
-          {new Intl.NumberFormat(
-            'pt-BR'
-          ).format(valor)}
-        </p>
-
-        {detalhe && (
-          <span className="text-sm font-medium text-sky-400">
-            {detalhe}
-          </span>
-        )}
-
       </div>
-
-    </div>
+    </main>
   )
 }

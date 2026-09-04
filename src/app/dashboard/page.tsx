@@ -18,6 +18,8 @@ import {
   TrendingUp,
   UserRound,
   Users,
+  Wrench,
+  ShieldAlert,
 } from 'lucide-react'
 import {
   PieChart,
@@ -39,6 +41,8 @@ type Registro = {
   cameras_instaladas: number
   cameras_online: number
   cameras_offline: number
+  cameras_offline_sem_furto: number
+  cameras_furtadas: number
   observacao?: string | null
   atualizado_em: string
 }
@@ -52,9 +56,13 @@ type Historico = {
   instaladas_anterior: number | null
   online_anterior: number | null
   offline_anterior: number | null
+  offline_sem_furto_anterior: number | null
+  furtadas_anterior: number | null
   instaladas_novo: number | null
   online_novo: number | null
   offline_novo: number | null
+  offline_sem_furto_novo: number | null
+  furtadas_novo: number | null
   criado_em: string
 }
 
@@ -137,9 +145,13 @@ export default function DashboardPage() {
             instaladas_anterior,
             online_anterior,
             offline_anterior,
+            offline_sem_furto_anterior,
+            furtadas_anterior,
             instaladas_novo,
             online_novo,
             offline_novo,
+            offline_sem_furto_novo,
+            furtadas_novo,
             criado_em
           `
         )
@@ -191,6 +203,12 @@ export default function DashboardPage() {
   const offline =
     ultimoRegistro?.cameras_offline ?? 0
 
+  const offlineSemFurto =
+    ultimoRegistro?.cameras_offline_sem_furto ?? 0
+
+  const furtadas =
+    ultimoRegistro?.cameras_furtadas ?? 0
+
   const meta = 3000
 
   const percentualOnline =
@@ -201,6 +219,16 @@ export default function DashboardPage() {
   const percentualOffline =
     instaladas > 0
       ? (offline / instaladas) * 100
+      : 0
+
+  const percentualSemFurto =
+    offline > 0
+      ? (offlineSemFurto / offline) * 100
+      : 0
+
+  const percentualFurtadas =
+    offline > 0
+      ? (furtadas / offline) * 100
       : 0
 
   const percentualMeta =
@@ -223,7 +251,7 @@ export default function DashboardPage() {
         value: online,
       },
       {
-        name: 'Offline',
+        name: 'Offline geral',
         value: offline,
       },
     ],
@@ -247,6 +275,12 @@ export default function DashboardPage() {
 
       offline:
         item.cameras_offline,
+
+      semFurto:
+        item.cameras_offline_sem_furto,
+
+      furtadas:
+        item.cameras_furtadas,
     }))
 
   async function sair() {
@@ -559,7 +593,7 @@ export default function DashboardPage() {
 
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
 
                   <ResumoMini
                     titulo="Online"
@@ -598,7 +632,7 @@ export default function DashboardPage() {
             </div>
 
             {/* CARDS */}
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
 
               <Card
                 titulo="Câmeras instaladas"
@@ -628,32 +662,13 @@ export default function DashboardPage() {
                 }
               />
 
-              <Card
-                titulo="Offline"
-                valor={formatarNumero(
-                  offline
-                )}
-                descricao={`${percentualOffline.toFixed(
-                  2
-                )}% das instaladas`}
-                icone={
-                  <CircleX
-                    size={22}
-                  />
-                }
-              />
-
-              <Card
-                titulo="Faltam para 3.000"
-                valor={formatarNumero(
-                  faltam
-                )}
-                descricao={`${percentualMeta.toFixed(
-                  2
-                )}% da meta atingida`}
-                icone={
-                  <Target size={22} />
-                }
+              <OfflineDetalhadoCard
+                offline={formatarNumero(offline)}
+                percentualOffline={`${percentualOffline.toFixed(2)}% das instaladas`}
+                semFurto={formatarNumero(offlineSemFurto)}
+                percentualSemFurto={`${percentualSemFurto.toFixed(2)}% do offline`}
+                furtadas={formatarNumero(furtadas)}
+                percentualFurtadas={`${percentualFurtadas.toFixed(2)}% do offline`}
               />
 
             </div>
@@ -667,7 +682,7 @@ export default function DashboardPage() {
                 <div>
 
                   <h3 className="text-lg font-semibold">
-                    Online x Offline
+                    Online x Offline geral
                   </h3>
 
                   <p className="text-sm text-slate-400">
@@ -855,7 +870,7 @@ export default function DashboardPage() {
                         <Line
                           type="monotone"
                           dataKey="offline"
-                          name="Offline"
+                          name="Offline geral"
                           stroke="#ef4444"
                           strokeWidth={3}
                           dot={false}
@@ -1092,7 +1107,7 @@ export default function DashboardPage() {
 
                         </div>
 
-                        <div className="grid grid-cols-3 gap-3 lg:min-w-[360px]">
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 lg:min-w-[600px]">
 
                           <MiniIndicador
                             titulo="Instaladas"
@@ -1111,9 +1126,25 @@ export default function DashboardPage() {
                           />
 
                           <MiniIndicador
-                            titulo="Offline"
+                            titulo="Offline geral"
                             valor={formatarNumero(
                               item.offline_novo ??
+                                0
+                            )}
+                          />
+
+                          <MiniIndicador
+                            titulo="Sem furto"
+                            valor={formatarNumero(
+                              item.offline_sem_furto_novo ??
+                                0
+                            )}
+                          />
+
+                          <MiniIndicador
+                            titulo="Furtadas"
+                            valor={formatarNumero(
+                              item.furtadas_novo ??
                                 0
                             )}
                           />
@@ -1137,6 +1168,60 @@ export default function DashboardPage() {
       </section>
 
     </main>
+  )
+}
+
+function OfflineDetalhadoCard({
+  offline,
+  percentualOffline,
+  semFurto,
+  percentualSemFurto,
+  furtadas,
+  percentualFurtadas,
+}: {
+  offline: string
+  percentualOffline: string
+  semFurto: string
+  percentualSemFurto: string
+  furtadas: string
+  percentualFurtadas: string
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-lg">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm text-slate-400">Offline geral</p>
+          <p className="mt-3 text-4xl font-bold tracking-tight">{offline}</p>
+          <p className="mt-2 text-sm text-slate-500">{percentualOffline}</p>
+        </div>
+
+        <div className="rounded-xl bg-red-500/10 p-3 text-red-400">
+          <CircleX size={22} />
+        </div>
+      </div>
+
+      <div className="mt-5 border-t border-slate-800 pt-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+            <div className="flex items-center gap-2 text-amber-400">
+              <Wrench size={16} />
+              <p className="text-sm font-medium text-slate-300">Sem furto</p>
+            </div>
+            <p className="mt-3 text-2xl font-bold text-white">{semFurto}</p>
+            <p className="mt-1 text-xs text-slate-500">{percentualSemFurto}</p>
+          </div>
+
+          <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+            <div className="flex items-center gap-2 text-red-400">
+              <ShieldAlert size={16} />
+              <p className="text-sm font-medium text-slate-300">Furtadas</p>
+            </div>
+            <p className="mt-3 text-2xl font-bold text-white">{furtadas}</p>
+            <p className="mt-1 text-xs text-slate-500">{percentualFurtadas}</p>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
